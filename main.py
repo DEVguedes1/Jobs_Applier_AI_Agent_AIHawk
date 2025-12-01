@@ -1,565 +1,240 @@
-import base64
+import time
+import random
+import os
 import sys
-from pathlib import Path
-import traceback
-from typing import List, Optional, Tuple, Dict
-
-import click
-import inquirer
 import yaml
-from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-import re
-from src.libs.resume_and_cover_builder import ResumeFacade, ResumeGenerator, StyleManager
-from src.resume_schemas.job_application_profile import JobApplicationProfile
-from src.resume_schemas.resume import Resume
-from src.logging import logger
+import csv
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from datetime import datetime
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+
 from src.utils.chrome_utils import init_browser
-from src.utils.constants import (
-    PLAIN_TEXT_RESUME_YAML,
-    SECRETS_YAML,
-    WORK_PREFERENCES_YAML,
-)
-# from ai_hawk.bot_facade import AIHawkBotFacade
-# from ai_hawk.job_manager import AIHawkJobManager
-# from ai_hawk.llm.llm_manager import GPTAnswerer
 
+historico_vagas = []
 
-class ConfigError(Exception):
-    """Custom exception for configuration-related errors."""
-    pass
-
-
-class ConfigValidator:
-    """Validates configuration and secrets YAML files."""
-
-    EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
-    REQUIRED_CONFIG_KEYS = {
-        "remote": bool,
-        "experience_level": dict,
-        "job_types": dict,
-        "date": dict,
-        "positions": list,
-        "locations": list,
-        "location_blacklist": list,
-        "distance": int,
-        "company_blacklist": list,
-        "title_blacklist": list,
-    }
-    EXPERIENCE_LEVELS = [
-        "internship",
-        "entry",
-        "associate",
-        "mid_senior_level",
-        "director",
-        "executive",
-    ]
-    JOB_TYPES = [
-        "full_time",
-        "contract",
-        "part_time",
-        "temporary",
-        "internship",
-        "other",
-        "volunteer",
-    ]
-    DATE_FILTERS = ["all_time", "month", "week", "24_hours"]
-    APPROVED_DISTANCES = {0, 5, 10, 25, 50, 100}
-
-    @staticmethod
-    def validate_email(email: str) -> bool:
-        """Validate the format of an email address."""
-        return bool(ConfigValidator.EMAIL_REGEX.match(email))
-
-    @staticmethod
-    def load_yaml(yaml_path: Path) -> dict:
-        """Load and parse a YAML file."""
-        try:
-            with open(yaml_path, "r") as stream:
-                return yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            raise ConfigError(f"Error reading YAML file {yaml_path}: {exc}")
-        except FileNotFoundError:
-            raise ConfigError(f"YAML file not found: {yaml_path}")
-
-    @classmethod
-    def validate_config(cls, config_yaml_path: Path) -> dict:
-        """Validate the main configuration YAML file."""
-        parameters = cls.load_yaml(config_yaml_path)
-        # Check for required keys and their types
-        for key, expected_type in cls.REQUIRED_CONFIG_KEYS.items():
-            if key not in parameters:
-                if key in ["company_blacklist", "title_blacklist", "location_blacklist"]:
-                    parameters[key] = []
-                else:
-                    raise ConfigError(f"Missing required key '{key}' in {config_yaml_path}")
-            elif not isinstance(parameters[key], expected_type):
-                if key in ["company_blacklist", "title_blacklist", "location_blacklist"] and parameters[key] is None:
-                    parameters[key] = []
-                else:
-                    raise ConfigError(
-                        f"Invalid type for key '{key}' in {config_yaml_path}. Expected {expected_type.__name__}."
-                    )
-        cls._validate_experience_levels(parameters["experience_level"], config_yaml_path)
-        cls._validate_job_types(parameters["job_types"], config_yaml_path)
-        cls._validate_date_filters(parameters["date"], config_yaml_path)
-        cls._validate_list_of_strings(parameters, ["positions", "locations"], config_yaml_path)
-        cls._validate_distance(parameters["distance"], config_yaml_path)
-        cls._validate_blacklists(parameters, config_yaml_path)
-        return parameters
-
-    @classmethod
-    def _validate_experience_levels(cls, experience_levels: dict, config_path: Path):
-        """Ensure experience levels are booleans."""
-        for level in cls.EXPERIENCE_LEVELS:
-            if not isinstance(experience_levels.get(level), bool):
-                raise ConfigError(
-                    f"Experience level '{level}' must be a boolean in {config_path}"
-                )
-
-    @classmethod
-    def _validate_job_types(cls, job_types: dict, config_path: Path):
-        """Ensure job types are booleans."""
-        for job_type in cls.JOB_TYPES:
-            if not isinstance(job_types.get(job_type), bool):
-                raise ConfigError(
-                    f"Job type '{job_type}' must be a boolean in {config_path}"
-                )
-
-    @classmethod
-    def _validate_date_filters(cls, date_filters: dict, config_path: Path):
-        """Ensure date filters are booleans."""
-        for date_filter in cls.DATE_FILTERS:
-            if not isinstance(date_filters.get(date_filter), bool):
-                raise ConfigError(
-                    f"Date filter '{date_filter}' must be a boolean in {config_path}"
-                )
-
-    @classmethod
-    def _validate_list_of_strings(cls, parameters: dict, keys: list, config_path: Path):
-        """Ensure specified keys are lists of strings."""
-        for key in keys:
-            if not all(isinstance(item, str) for item in parameters[key]):
-                raise ConfigError(
-                    f"'{key}' must be a list of strings in {config_path}"
-                )
-
-    @classmethod
-    def _validate_distance(cls, distance: int, config_path: Path):
-        """Validate the distance value."""
-        if distance not in cls.APPROVED_DISTANCES:
-            raise ConfigError(
-                f"Invalid distance value '{distance}' in {config_path}. Must be one of: {cls.APPROVED_DISTANCES}"
-            )
-
-    @classmethod
-    def _validate_blacklists(cls, parameters: dict, config_path: Path):
-        """Ensure blacklists are lists."""
-        for blacklist in ["company_blacklist", "title_blacklist", "location_blacklist"]:
-            if not isinstance(parameters.get(blacklist), list):
-                raise ConfigError(
-                    f"'{blacklist}' must be a list in {config_path}"
-                )
-            if parameters[blacklist] is None:
-                parameters[blacklist] = []
-
-    @staticmethod
-    def validate_secrets(secrets_yaml_path: Path) -> str:
-        """Validate the secrets YAML file and retrieve the LLM API key."""
-        secrets = ConfigValidator.load_yaml(secrets_yaml_path)
-        mandatory_secrets = ["llm_api_key"]
-
-        for secret in mandatory_secrets:
-            if secret not in secrets:
-                raise ConfigError(f"Missing secret '{secret}' in {secrets_yaml_path}")
-
-            if not secrets[secret]:
-                raise ConfigError(f"Secret '{secret}' cannot be empty in {secrets_yaml_path}")
-
-        return secrets["llm_api_key"]
-
-
-class FileManager:
-    """Handles file system operations and validations."""
-
-    REQUIRED_FILES = [SECRETS_YAML, WORK_PREFERENCES_YAML, PLAIN_TEXT_RESUME_YAML]
-
-    @staticmethod
-    def validate_data_folder(app_data_folder: Path) -> Tuple[Path, Path, Path, Path]:
-        """Validate the existence of the data folder and required files."""
-        if not app_data_folder.is_dir():
-            raise FileNotFoundError(f"Data folder not found: {app_data_folder}")
-
-        missing_files = [file for file in FileManager.REQUIRED_FILES if not (app_data_folder / file).exists()]
-        if missing_files:
-            raise FileNotFoundError(f"Missing files in data folder: {', '.join(missing_files)}")
-
-        output_folder = app_data_folder / "output"
-        output_folder.mkdir(exist_ok=True)
-
-        return (
-            app_data_folder / SECRETS_YAML,
-            app_data_folder / WORK_PREFERENCES_YAML,
-            app_data_folder / PLAIN_TEXT_RESUME_YAML,
-            output_folder,
-        )
-
-    @staticmethod
-    def get_uploads(plain_text_resume_file: Path) -> Dict[str, Path]:
-        """Convert resume file paths to a dictionary."""
-        if not plain_text_resume_file.exists():
-            raise FileNotFoundError(f"Plain text resume file not found: {plain_text_resume_file}")
-
-        uploads = {"plainTextResume": plain_text_resume_file}
-
-        return uploads
-
-
-def create_cover_letter(parameters: dict, llm_api_key: str):
-    """
-    Logic to create a CV.
-    """
+def load_secrets():
     try:
-        logger.info("Generating a CV based on provided parameters.")
-
-        # Carica il resume in testo semplice
-        with open(parameters["uploads"]["plainTextResume"], "r", encoding="utf-8") as file:
-            plain_text_resume = file.read()
-
-        style_manager = StyleManager()
-        available_styles = style_manager.get_styles()
-
-        if not available_styles:
-            logger.warning("No styles available. Proceeding without style selection.")
-        else:
-            # Present style choices to the user
-            choices = style_manager.format_choices(available_styles)
-            questions = [
-                inquirer.List(
-                    "style",
-                    message="Select a style for the resume:",
-                    choices=choices,
-                )
-            ]
-            style_answer = inquirer.prompt(questions)
-            if style_answer and "style" in style_answer:
-                selected_choice = style_answer["style"]
-                for style_name, (file_name, author_link) in available_styles.items():
-                    if selected_choice.startswith(style_name):
-                        style_manager.set_selected_style(style_name)
-                        logger.info(f"Selected style: {style_name}")
-                        break
-            else:
-                logger.warning("No style selected. Proceeding with default style.")
-        questions = [
-    inquirer.Text('job_url', message="Please enter the URL of the job description:")
-        ]
-        answers = inquirer.prompt(questions)
-        job_url = answers.get('job_url')
-        resume_generator = ResumeGenerator()
-        resume_object = Resume(plain_text_resume)
-        driver = init_browser()
-        resume_generator.set_resume_object(resume_object)
-        resume_facade = ResumeFacade(            
-            api_key=llm_api_key,
-            style_manager=style_manager,
-            resume_generator=resume_generator,
-            resume_object=resume_object,
-            output_path=Path("data_folder/output"),
-        )
-        resume_facade.set_driver(driver)
-        resume_facade.link_to_job(job_url)
-        result_base64, suggested_name = resume_facade.create_cover_letter()         
-
-        # Decodifica Base64 in dati binari
-        try:
-            pdf_data = base64.b64decode(result_base64)
-        except base64.binascii.Error as e:
-            logger.error("Error decoding Base64: %s", e)
-            raise
-
-        # Definisci il percorso della cartella di output utilizzando `suggested_name`
-        output_dir = Path(parameters["outputFileDirectory"]) / suggested_name
-
-        # Crea la cartella se non esiste
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Cartella di output creata o già esistente: {output_dir}")
-        except IOError as e:
-            logger.error("Error creating output directory: %s", e)
-            raise
-        
-        output_path = output_dir / "cover_letter_tailored.pdf"
-        try:
-            with open(output_path, "wb") as file:
-                file.write(pdf_data)
-            logger.info(f"CV salvato in: {output_path}")
-        except IOError as e:
-            logger.error("Error writing file: %s", e)
-            raise
+        with open("data_folder/secrets.yaml", "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
     except Exception as e:
-        logger.exception(f"An error occurred while creating the CV: {e}")
-        raise
+        print(f"❌ Erro ao ler secrets.yaml: {e}")
+        sys.exit(1)
 
-
-def create_resume_pdf_job_tailored(parameters: dict, llm_api_key: str):
-    """
-    Logic to create a CV.
-    """
+def load_preferences():
     try:
-        logger.info("Generating a CV based on provided parameters.")
-
-        # Carica il resume in testo semplice
-        with open(parameters["uploads"]["plainTextResume"], "r", encoding="utf-8") as file:
-            plain_text_resume = file.read()
-
-        style_manager = StyleManager()
-        available_styles = style_manager.get_styles()
-
-        if not available_styles:
-            logger.warning("No styles available. Proceeding without style selection.")
-        else:
-            # Present style choices to the user
-            choices = style_manager.format_choices(available_styles)
-            questions = [
-                inquirer.List(
-                    "style",
-                    message="Select a style for the resume:",
-                    choices=choices,
-                )
-            ]
-            style_answer = inquirer.prompt(questions)
-            if style_answer and "style" in style_answer:
-                selected_choice = style_answer["style"]
-                for style_name, (file_name, author_link) in available_styles.items():
-                    if selected_choice.startswith(style_name):
-                        style_manager.set_selected_style(style_name)
-                        logger.info(f"Selected style: {style_name}")
-                        break
-            else:
-                logger.warning("No style selected. Proceeding with default style.")
-        questions = [inquirer.Text('job_url', message="Please enter the URL of the job description:")]
-        answers = inquirer.prompt(questions)
-        job_url = answers.get('job_url')
-        resume_generator = ResumeGenerator()
-        resume_object = Resume(plain_text_resume)
-        driver = init_browser()
-        resume_generator.set_resume_object(resume_object)
-        resume_facade = ResumeFacade(            
-            api_key=llm_api_key,
-            style_manager=style_manager,
-            resume_generator=resume_generator,
-            resume_object=resume_object,
-            output_path=Path("data_folder/output"),
-        )
-        resume_facade.set_driver(driver)
-        resume_facade.link_to_job(job_url)
-        result_base64, suggested_name = resume_facade.create_resume_pdf_job_tailored()         
-
-        # Decodifica Base64 in dati binari
-        try:
-            pdf_data = base64.b64decode(result_base64)
-        except base64.binascii.Error as e:
-            logger.error("Error decoding Base64: %s", e)
-            raise
-
-        # Definisci il percorso della cartella di output utilizzando `suggested_name`
-        output_dir = Path(parameters["outputFileDirectory"]) / suggested_name
-
-        # Crea la cartella se non esiste
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Cartella di output creata o già esistente: {output_dir}")
-        except IOError as e:
-            logger.error("Error creating output directory: %s", e)
-            raise
-        
-        output_path = output_dir / "resume_tailored.pdf"
-        try:
-            with open(output_path, "wb") as file:
-                file.write(pdf_data)
-            logger.info(f"CV salvato in: {output_path}")
-        except IOError as e:
-            logger.error("Error writing file: %s", e)
-            raise
+        with open("data_folder/work_preferences.yaml", "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
     except Exception as e:
-        logger.exception(f"An error occurred while creating the CV: {e}")
-        raise
+        print(f"❌ Erro ao ler work_preferences.yaml: {e}")
+        sys.exit(1)
 
+def enviar_relatorio_email(secrets):
+    print("\n📧 PREPARANDO ENVIO DE EMAIL...")
+    remetente = secrets.get("gmail_user")
+    senha = secrets.get("gmail_app_password")
+    destinatario = secrets.get("linkedin_username")
+    
+    if not remetente or not senha:
+        print("⚠️ Email não configurado. Pulando.")
+        return
 
-def create_resume_pdf(parameters: dict, llm_api_key: str):
-    """
-    Logic to create a CV.
-    """
+    arquivos_para_enviar = ["vagas_sucesso.csv", "vagas_pendentes.csv"]
+    arquivos_existentes = [f for f in arquivos_para_enviar if os.path.isfile(f)]
+    
+    if not arquivos_existentes:
+        return
+
+    msg = MIMEMultipart()
+    msg['From'] = remetente
+    msg['To'] = destinatario
+    msg['Subject'] = f"🤖 Relatório LinkedIn - {datetime.now().strftime('%d/%m')}"
+    
+    msg.attach(MIMEText("Segue em anexo o relatório das vagas processadas hoje.", 'plain'))
+
+    for arquivo in arquivos_existentes:
+        try:
+            with open(arquivo, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename= {arquivo}")
+            msg.attach(part)
+        except Exception: pass
+
     try:
-        logger.info("Generating a CV based on provided parameters.")
-
-        # Load the plain text resume
-        with open(parameters["uploads"]["plainTextResume"], "r", encoding="utf-8") as file:
-            plain_text_resume = file.read()
-
-        # Initialize StyleManager
-        style_manager = StyleManager()
-        available_styles = style_manager.get_styles()
-
-        if not available_styles:
-            logger.warning("No styles available. Proceeding without style selection.")
-        else:
-            # Present style choices to the user
-            choices = style_manager.format_choices(available_styles)
-            questions = [
-                inquirer.List(
-                    "style",
-                    message="Select a style for the resume:",
-                    choices=choices,
-                )
-            ]
-            style_answer = inquirer.prompt(questions)
-            if style_answer and "style" in style_answer:
-                selected_choice = style_answer["style"]
-                for style_name, (file_name, author_link) in available_styles.items():
-                    if selected_choice.startswith(style_name):
-                        style_manager.set_selected_style(style_name)
-                        logger.info(f"Selected style: {style_name}")
-                        break
-            else:
-                logger.warning("No style selected. Proceeding with default style.")
-
-        # Initialize the Resume Generator
-        resume_generator = ResumeGenerator()
-        resume_object = Resume(plain_text_resume)
-        driver = init_browser()
-        resume_generator.set_resume_object(resume_object)
-
-        # Create the ResumeFacade
-        resume_facade = ResumeFacade(
-            api_key=llm_api_key,
-            style_manager=style_manager,
-            resume_generator=resume_generator,
-            resume_object=resume_object,
-            output_path=Path("data_folder/output"),
-        )
-        resume_facade.set_driver(driver)
-        result_base64 = resume_facade.create_resume_pdf()
-
-        # Decode Base64 to binary data
-        try:
-            pdf_data = base64.b64decode(result_base64)
-        except base64.binascii.Error as e:
-            logger.error("Error decoding Base64: %s", e)
-            raise
-
-        # Define the output directory using `suggested_name`
-        output_dir = Path(parameters["outputFileDirectory"])
-
-        # Write the PDF file
-        output_path = output_dir / "resume_base.pdf"
-        try:
-            with open(output_path, "wb") as file:
-                file.write(pdf_data)
-            logger.info(f"Resume saved at: {output_path}")
-        except IOError as e:
-            logger.error("Error writing file: %s", e)
-            raise
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(remetente, senha)
+        server.sendmail(remetente, destinatario, msg.as_string())
+        server.quit()
+        print(f"✅ Email enviado com sucesso!")
     except Exception as e:
-        logger.exception(f"An error occurred while creating the CV: {e}")
-        raise
+        print(f"❌ Erro no email: {e}")
 
-        
-def handle_inquiries(selected_actions: List[str], parameters: dict, llm_api_key: str):
-    """
-    Decide which function to call based on the selected user actions.
-
-    :param selected_actions: List of actions selected by the user.
-    :param parameters: Configuration parameters dictionary.
-    :param llm_api_key: API key for the language model.
-    """
+def salvar_csv_seguro(nome_arquivo, dados):
+    if not dados: return 
+    cabecalho = ["Data/Hora", "Cargo", "Empresa", "Local", "Status", "Link da Vaga"]
+    arquivo_existe = os.path.isfile(nome_arquivo)
     try:
-        if selected_actions:
-            if "Generate Resume" == selected_actions:
-                logger.info("Crafting a standout professional resume...")
-                create_resume_pdf(parameters, llm_api_key)
+        with open(nome_arquivo, mode='a', newline='', encoding='utf-8-sig') as f:
+            escritor = csv.writer(f, delimiter=';')
+            if not arquivo_existe: escritor.writerow(cabecalho)
+            escritor.writerows(dados)
+        print(f"✅ Salvo em: {nome_arquivo}")
+    except PermissionError:
+        print(f"❌ ERRO: Feche o arquivo {nome_arquivo}!")
+    except Exception: pass
+
+def processar_e_salvar_relatorios(secrets):
+    print("\n💾 SALVANDO ARQUIVOS...")
+    lista_sucesso = []
+    lista_pendentes = []
+    
+    for vaga in historico_vagas:
+        status = vaga[4]
+        if "Sucesso" in status or "Enviada" in status:
+            lista_sucesso.append(vaga)
+        else:
+            lista_pendentes.append(vaga)
+            
+    if lista_sucesso: salvar_csv_seguro("vagas_sucesso.csv", lista_sucesso)
+    if lista_pendentes: salvar_csv_seguro("vagas_pendentes.csv", lista_pendentes)
+    
+    enviar_relatorio_email(secrets)
+
+def login_linkedin(driver, username, password):
+    print("--- 🔑 FAZENDO LOGIN ---")
+    driver.get("https://www.linkedin.com/login")
+    time.sleep(3)
+    try:
+        driver.find_element(By.ID, "username").send_keys(username)
+        driver.find_element(By.ID, "password").send_keys(password)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        print("✅ Dados enviados.")
+        print("\n" + "="*50 + "\n✋ PAUSA: Resolva Captcha e vá para o FEED.\n👉 Aperte ENTER aqui para continuar...\n" + "="*50)
+        input()
+    except Exception as e:
+        print(f"❌ Erro no login: {e}")
+
+def tentar_aplicar_sozinho(driver):
+    try:
+        time.sleep(2)
+        # Procura botões de Enviar/Submit
+        botoes_enviar = driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Enviar candidatura'], button[aria-label='Submit application']")
+        
+        if botoes_enviar:
+            botoes_enviar[0].click()
+            time.sleep(2)
+            try: driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
+            except: pass
+            return "Candidatura Enviada com Sucesso! ✅"
+        else:
+            # Se não achou enviar, fecha e marca como pendente
+            try:
+                driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
+                time.sleep(1)
+                driver.find_element(By.CSS_SELECTOR, "button[data-control-name='discard_application_confirm_btn']").click()
+            except: pass
+            return "Formulário complexo (Manual Necessário) ⚠️"
+    except Exception as e:
+        return f"Erro ao aplicar: {str(e)[:30]}"
+
+def search_jobs(driver, positions, locations):
+    print("--- 🔎 BUSCANDO E APLICANDO ---")
+    
+    for cargo in positions:
+        for local in locations:
+            print(f"\n📍 Pesquisando: {cargo} em {local}")
+            url = f"https://www.linkedin.com/jobs/search/?keywords={cargo}&location={local}&f_AL=true"
+            driver.get(url)
+            time.sleep(5)
+            
+            try:
+                try: driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar']").click()
+                except: pass
+
+                # Pega a lista de cartões de vagas
+                job_cards = driver.find_elements(By.CSS_SELECTOR, ".job-card-container")
+                print(f"   Encontrei {len(job_cards)} vagas.")
                 
-            if "Generate Resume Tailored for Job Description" == selected_actions:
-                logger.info("Customizing your resume to enhance your job application...")
-                create_resume_pdf_job_tailored(parameters, llm_api_key)
+                for i, card in enumerate(job_cards):
+                    try:
+                        # Rola até a vaga para ela ficar visível
+                        driver.execute_script("arguments[0].scrollIntoView();", card)
+                        
+                        # --- CORREÇÃO AQUI: PEGA O LINK ANTES DE CLICAR ---
+                        try:
+                            # Procura o link dentro do cartão da vaga
+                            link_elem = card.find_element(By.CSS_SELECTOR, "a.job-card-container__link")
+                            link_vaga = link_elem.get_attribute("href").split("?")[0] # Limpa o link
+                        except:
+                            # Se falhar, usa o link atual como fallback (mas o de cima deve funcionar)
+                            link_vaga = driver.current_url
+
+                        # Agora sim, clica para abrir os detalhes na direita
+                        card.click()
+                        time.sleep(2) 
+                        
+                        try: titulo = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__job-title").text.strip()
+                        except: titulo = cargo
+                        try: empresa = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__company-name").text.strip()
+                        except: empresa = "Empresa X"
+                            
+                        status = "Link Externo"
+                        
+                        # Procura o botão de aplicar
+                        botoes = driver.find_elements(By.CLASS_NAME, "jobs-apply-button--top-card")
+                        
+                        if botoes:
+                            texto = botoes[0].text.lower()
+                            if "candidatura simplificada" in texto or "easy apply" in texto:
+                                print(f"   👆 Tentando aplicar em: {titulo}")
+                                botoes[0].click()
+                                status = tentar_aplicar_sozinho(driver)
+                            else:
+                                status = "Link Externo (Não clicado)"
+                        
+                        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                        print(f"   📝 {i+1}. {titulo} -> {status}")
+                        historico_vagas.append([agora, titulo, empresa, local, status, link_vaga])
+                        
+                    except Exception as e:
+                        # Se der erro numa vaga, pula pra próxima
+                        continue
+                    
+                    time.sleep(1) # Respira antes da próxima vaga
                 
-            if "Generate Tailored Cover Letter for Job Description" == selected_actions:
-                logger.info("Designing a personalized cover letter to enhance your job application...")
-                create_cover_letter(parameters, llm_api_key)
-
-        else:
-            logger.warning("No actions selected. Nothing to execute.")
-    except Exception as e:
-        logger.exception(f"An error occurred while handling inquiries: {e}")
-        raise
-
-def prompt_user_action() -> str:
-    """
-    Use inquirer to ask the user which action they want to perform.
-
-    :return: Selected action.
-    """
-    try:
-        questions = [
-            inquirer.List(
-                'action',
-                message="Select the action you want to perform:",
-                choices=[
-                    "Generate Resume",
-                    "Generate Resume Tailored for Job Description",
-                    "Generate Tailored Cover Letter for Job Description",
-                ],
-            ),
-        ]
-        answer = inquirer.prompt(questions)
-        if answer is None:
-            print("No answer provided. The user may have interrupted.")
-            return ""
-        return answer.get('action', "")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return ""
-
+            except Exception as e:
+                print(f"   Erro na lista: {e}")
+            
+            time.sleep(3)
 
 def main():
-    """Main entry point for the AIHawk Job Application Bot."""
+    print("--- 🤖 ROBÔ FINAL CORRIGIDO ---")
+    secrets = load_secrets()
+    prefs = load_preferences()
+    email = secrets.get("linkedin_username")
+    password = secrets.get("linkedin_password")
+    positions = prefs.get("positions", ["Java Developer"])
+    locations = prefs.get("locations", ["Brazil"])
+
     try:
-        # Define and validate the data folder
-        data_folder = Path("data_folder")
-        secrets_file, config_file, plain_text_resume_file, output_folder = FileManager.validate_data_folder(data_folder)
-
-        # Validate configuration and secrets
-        config = ConfigValidator.validate_config(config_file)
-        llm_api_key = ConfigValidator.validate_secrets(secrets_file)
-
-        # Prepare parameters
-        config["uploads"] = FileManager.get_uploads(plain_text_resume_file)
-        config["outputFileDirectory"] = output_folder
-
-        # Interactive prompt for user to select actions
-        selected_actions = prompt_user_action()
-
-        # Handle selected actions and execute them
-        handle_inquiries(selected_actions, config, llm_api_key)
-
-    except ConfigError as ce:
-        logger.error(f"Configuration error: {ce}")
-        logger.error(
-            "Refer to the configuration guide for troubleshooting: "
-            "https://github.com/feder-cr/Auto_Jobs_Applier_AIHawk?tab=readme-ov-file#configuration"
-        )
-    except FileNotFoundError as fnf:
-        logger.error(f"File not found: {fnf}")
-        logger.error("Ensure all required files are present in the data folder.")
-    except RuntimeError as re:
-        logger.error(f"Runtime error: {re}")
-        logger.debug(traceback.format_exc())
+        driver = init_browser()
+        login_linkedin(driver, email, password)
+        search_jobs(driver, positions, locations)
+    except KeyboardInterrupt:
+        print("\n🛑 Parado pelo usuário.")
     except Exception as e:
-        logger.exception(f"An unexpected error occurred: {e}")
-
+        print(f"🚨 Erro: {e}")
+    finally:
+        processar_e_salvar_relatorios(secrets)
+        print("\nFechando em 10 segundos...")
+        time.sleep(10)
 
 if __name__ == "__main__":
     main()

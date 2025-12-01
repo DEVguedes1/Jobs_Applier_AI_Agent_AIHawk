@@ -2,22 +2,18 @@ remote: true
 hybrid: true
 onsite: true
 
-experience_level:
-  internship: false
-  entry: true
-  associate: true
-  mid_senior_level: true
-  director: false
-  executive: false
+experience_level: ["Internship", "Entry level"]
 
 job_types:
   full_time: true
   contract: false
   part_time: false
   temporary: true
-  internship: false
+  internship: true
   other: false
   volunteer: true
+
+job_titles: ["Estágio Java", "Desenvolvedor Java Júnior", "React Developer", "Estágio TI"]
 
 date:
   all_time: false
@@ -26,10 +22,15 @@ date:
   24_hours: true
 
 positions:
-  - Software engineer
+ - "Estágio em Desenvolvimento de Sistemas"
+ - "Estágio Java"
+ - "Java Developer Junior"
+ - "React Developer Junior"
 
-locations:
-  - Germany
+locations: 
+ - "Brasil"
+ - "João Pessoa"
+ - "Remote"
 
 apply_once_at_company: true
 
