@@ -114,4 +114,4 @@ Este software foi desenvolvido estritamente para fins educacionais e de aprendiz
 * E-mail: nicolasguedesguedes081@gmail.com
 
 ---
-*Projeto desenvolvido para portfólio de Análise e Desenvolvimento de Sistemas.*
+*Projeto desenvolvido para portfólio de Análise e Desenvolvimento de Sistemas.*# bot_de_vaga
