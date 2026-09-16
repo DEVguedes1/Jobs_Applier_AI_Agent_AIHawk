@@ -1,0 +1,12 @@
+{
+  "name": "job-tracker-dashboard",
+  "version": "1.0.0",
+  "description": "Painel de controle visual e pipeline do processo seletivo para vagas do LinkedIn e Links Externos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["jobs", "tracker", "kanban", "linkedin", "automation"],
+  "author": "",
+  "license": "MIT"
+}

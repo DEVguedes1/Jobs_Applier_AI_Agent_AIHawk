@@ -2,6 +2,13 @@ import time
 import random
 import os
 import sys
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 import yaml
 import csv
 import smtplib
@@ -111,15 +118,61 @@ def login_linkedin(driver, username, password):
     print("--- 🔑 FAZENDO LOGIN ---")
     driver.get("https://www.linkedin.com/login")
     time.sleep(3)
+    
     try:
-        driver.find_element(By.ID, "username").send_keys(username)
-        driver.find_element(By.ID, "password").send_keys(password)
-        driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        print("✅ Dados enviados.")
-        print("\n" + "="*50 + "\n✋ PAUSA: Resolva Captcha e vá para o FEED.\n👉 Aperte ENTER aqui para continuar...\n" + "="*50)
-        input()
+        # Dismiss any cookie banner if present
+        for cookie_btn in driver.find_elements(By.XPATH, "//button[contains(text(), 'Aceitar') or contains(text(), 'Accept') or contains(@action_type, 'ACCEPT')]"):
+            try:
+                if cookie_btn.is_displayed():
+                    cookie_btn.click()
+                    time.sleep(1)
+                    break
+            except Exception:
+                pass
+
+        user_field = None
+        for sel in ["#username", "#session_key", "input[name='session_key']", "input[autocomplete='username']"]:
+            for el in driver.find_elements(By.CSS_SELECTOR, sel):
+                if el.is_displayed():
+                    user_field = el
+                    break
+            if user_field:
+                break
+
+        pass_field = None
+        for sel in ["#password", "#session_password", "input[name='session_password']", "input[type='password']"]:
+            for el in driver.find_elements(By.CSS_SELECTOR, sel):
+                if el.is_displayed():
+                    pass_field = el
+                    break
+            if pass_field:
+                break
+
+        if user_field and pass_field:
+            user_field.clear()
+            user_field.send_keys(username)
+            time.sleep(0.5)
+            pass_field.clear()
+            pass_field.send_keys(password)
+            time.sleep(0.5)
+            
+            submit_btn = None
+            for s in driver.find_elements(By.XPATH, "//button[@type='submit']"):
+                if s.is_displayed():
+                    submit_btn = s
+                    break
+            if submit_btn:
+                submit_btn.click()
+            else:
+                pass_field.send_keys(Keys.ENTER)
+            print("✅ Dados enviados automaticamente.")
+        else:
+            print(f"⚠️ Campos de login não visíveis. Por favor, faça login na janela do Chrome.")
     except Exception as e:
-        print(f"❌ Erro no login: {e}")
+        print(f"⚠️ Aviso no preenchimento: {e}. Por favor, faça login diretamente na janela do Chrome.")
+
+    print("\n" + "="*50 + "\n✋ PAUSA: Resolva Captcha e vá para o FEED.\n👉 Aperte ENTER aqui para continuar...\n" + "="*50)
+    input()
 
 def tentar_aplicar_sozinho(driver):
     try:
