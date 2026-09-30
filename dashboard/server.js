@@ -1,23 +1,49 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const url = require('url');
-const crypto = require('crypto');
+const http     = require('http');
+const fs       = require('fs');
+const path     = require('path');
+const url      = require('url');
+const crypto   = require('crypto');
 const { spawn } = require('child_process');
 
-const PORT = process.env.PORT || 3000;
-const ROOT_DIR = path.resolve(__dirname, '..');
-const DATA_FILE = path.join(__dirname, 'jobs_tracker.json');
-const CSV_SUCESSO = path.join(ROOT_DIR, 'vagas_sucesso.csv');
-const CSV_PENDENTES = path.join(ROOT_DIR, 'vagas_pendentes.csv');
+const PORT       = process.env.PORT || 3000;
+const ROOT_DIR   = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// Estado do Robô LinkedIn
-let botProcess = null;
-let botStatus = 'idle'; // 'idle' | 'running' | 'waiting_captcha' | 'completed' | 'error'
-let botLogs = [];
+// ─── Banco de Dados SQLite (node:sqlite) ───────────────────────────────────────
+const {
+  db,
+  initDb,
+  seedDatabase,
+  seedFromCsvs,
+  getAllJobs,
+  getStats,
+  getRecentActivities,
+  upsertCompany,
+  mapJob,
+  syncBackToCsv
+} = require('./db');
+
+// Ensure tables exist and initial migration is performed
+initDb();
+seedDatabase(false);
+
+// ─── Configuração Semântica das Etapas ───────────────────────────────────────
+const STATUS_CONFIG = {
+  pending:   { label: 'Pendente / Link Externo', icon: '📌', color: '#F59E0B' },
+  applied:   { label: 'Candidatura Enviada',      icon: '🚀', color: '#3B82F6' },
+  screening: { label: 'Triagem / Contato RH',    icon: '💬', color: '#8B5CF6' },
+  technical: { label: 'Desafio Técnico',          icon: '💻', color: '#06B6D4' },
+  interview: { label: 'Entrevista',               icon: '🎯', color: '#EC4899' },
+  offer:     { label: 'Proposta / Oferta',        icon: '🏆', color: '#22C55E' },
+  rejected:  { label: 'Não Selecionado',          icon: '❌', color: '#64748B' }
+};
+
+// ─── Estado do Robô LinkedIn ──────────────────────────────────────────────────
+let botProcess   = null;
+let botStatus    = 'idle'; // idle | running | waiting_captcha | completed | error
+let botLogs      = [];
 let botStartedAt = null;
-let botFinishedAt = null;
+let botFinishedAt= null;
 
 function addBotLog(msg) {
   const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
@@ -27,407 +53,293 @@ function addBotLog(msg) {
 }
 
 function getPythonCommand() {
-  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
-    return process.env.PYTHON_PATH;
-  }
-
+  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) return process.env.PYTHON_PATH;
   const candidates = [
     path.join(ROOT_DIR, 'venv', 'Scripts', 'python.exe'),
     path.join(ROOT_DIR, '.venv', 'Scripts', 'python.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python310', 'python.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    'C:\\Python311\\python.exe',
-    'C:\\Python310\\python.exe',
-    'C:\\Python312\\python.exe',
-    'C:\\Program Files\\Python311\\python.exe',
-    'C:\\Program Files\\Python310\\python.exe'
+    'C:\\Python311\\python.exe', 'C:\\Python310\\python.exe', 'C:\\Python312\\python.exe',
   ];
-
-  for (const c of candidates) {
-    if (c && fs.existsSync(c)) {
-      return c;
-    }
-  }
-
+  for (const c of candidates) { if (c && fs.existsSync(c)) return c; }
   return 'python';
 }
 
-const STATUS_CONFIG = {
-  pending: { label: 'Pendente / Link Externo', icon: '📌', color: '#f59e0b' },
-  applied: { label: 'Candidatura Enviada', icon: '🚀', color: '#3b82f6' },
-  screening: { label: 'Triagem / Contato RH', icon: '💬', color: '#8b5cf6' },
-  technical: { label: 'Desafio Técnico', icon: '💻', color: '#06b6d4' },
-  interview: { label: 'Entrevista', icon: '🎯', color: '#ec4899' },
-  offer: { label: 'Proposta / Oferta', icon: '🏆', color: '#10b981' },
-  rejected: { label: 'Não Selecionado', icon: '❌', color: '#ef4444' }
-};
-
-// Helper: Gera hash único baseado em cargo, empresa e link
-function generateJobId(title, company, link) {
-  const raw = `${(title || '').toLowerCase().trim()}_${(company || '').toLowerCase().trim()}_${(link || '').trim()}`;
-  return crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
-}
-
-// Helper: Lê arquivo CSV com delimitador ';'
-function parseCsvFile(filePath) {
-  if (!fs.existsSync(filePath)) return [];
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const lines = content.split(/\r?\n/).filter(line => line.trim().length > 0);
-    if (lines.length <= 1) return [];
-
-    const jobs = [];
-    // Pular cabeçalho
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(';');
-      if (parts.length >= 5) {
-        const dateTime = parts[0]?.trim() || '';
-        const title = parts[1]?.trim() || 'Vaga Sem Título';
-        const company = parts[2]?.trim() || 'Empresa Confidencial';
-        const location = parts[3]?.trim() || 'Não especificado';
-        const rawStatus = parts[4]?.trim() || '';
-        const jobUrl = parts[5]?.trim() || '';
-
-        let workMode = 'Não especificado';
-        const lowerLoc = location.toLowerCase();
-        const lowerTitle = title.toLowerCase();
-        if (lowerLoc.includes('remot') || lowerTitle.includes('remote') || lowerTitle.includes('remoto')) {
-          workMode = 'Remoto';
-        } else if (lowerLoc.includes('híbrid') || lowerLoc.includes('hybrid')) {
-          workMode = 'Híbrido';
-        } else if (location && location !== 'Não especificado') {
-          workMode = 'Presencial';
-        }
-
-        jobs.push({
-          dateTime,
-          title,
-          company,
-          location,
-          rawStatus,
-          jobUrl,
-          workMode
-        });
-      }
-    }
-    return jobs;
-  } catch (err) {
-    console.error(`Erro ao ler CSV ${filePath}:`, err.message);
-    return [];
-  }
-}
-
-// Carrega o banco JSON existente
-function loadJobsDatabase() {
-  if (fs.existsSync(DATA_FILE)) {
-    try {
-      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error('Erro ao ler jobs_tracker.json, recriando:', e.message);
-    }
-  }
-  return [];
-}
-
-// Salva o banco JSON
-function saveJobsDatabase(jobs) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(jobs, null, 2), 'utf-8');
-}
-
-// Sincroniza CSVs para o JSON
-function syncFromCsvFiles() {
-  let existingJobs = loadJobsDatabase();
-  const existingMap = new Map(existingJobs.map(j => [j.id, j]));
-
-  const currentCsvIds = new Set();
-  let addedCount = 0;
-
-  // 1. Processar vagas com sucesso (já candidatadas)
-  const sucessoJobs = parseCsvFile(CSV_SUCESSO);
-  for (const item of sucessoJobs) {
-    const id = generateJobId(item.title, item.company, item.jobUrl);
-    currentCsvIds.add(id);
-    if (!existingMap.has(id)) {
-      const newJob = {
-        id,
-        title: item.title,
-        company: item.company,
-        location: item.location,
-        workMode: item.workMode,
-        url: item.jobUrl,
-        status: 'applied',
-        originalStatus: item.rawStatus,
-        dateAdded: item.dateTime || new Date().toLocaleString('pt-BR'),
-        appliedDate: item.dateTime || new Date().toLocaleString('pt-BR'),
-        source: 'LinkedIn Bot (Easy Apply)',
-        notes: '',
-        salary: '',
-        tags: [],
-        updatedAt: new Date().toISOString()
-      };
-      existingJobs.push(newJob);
-      existingMap.set(id, newJob);
-      addedCount++;
-    }
-  }
-
-  // 2. Processar vagas pendentes (formulário complexo ou link externo)
-  const pendentesJobs = parseCsvFile(CSV_PENDENTES);
-  for (const item of pendentesJobs) {
-    const id = generateJobId(item.title, item.company, item.jobUrl);
-    currentCsvIds.add(id);
-    if (!existingMap.has(id)) {
-      const newJob = {
-        id,
-        title: item.title,
-        company: item.company,
-        location: item.location,
-        workMode: item.workMode,
-        url: item.jobUrl,
-        status: 'pending',
-        originalStatus: item.rawStatus,
-        dateAdded: item.dateTime || new Date().toLocaleString('pt-BR'),
-        appliedDate: null,
-        source: 'LinkedIn Bot (Pendente/Externo)',
-        notes: item.rawStatus.includes('Formulário complexo') 
-          ? 'Requer candidatura manual (perguntas personalizadas ou testes no LinkedIn)' 
-          : 'Link externo (não foi clicado pelo bot)',
-        salary: '',
-        tags: [],
-        updatedAt: new Date().toISOString()
-      };
-      existingJobs.push(newJob);
-      existingMap.set(id, newJob);
-      addedCount++;
-    }
-  }
-
-  // 3. Remover do banco local vagas do robô que foram apagadas dos CSVs
-  let removedCount = 0;
-  const filteredJobs = existingJobs.filter(job => {
-    // Vagas manuais são sempre preservadas
-    if (job.source === 'Cadastro Manual' || job.source === 'Manual') {
-      return true;
-    }
-    // Vagas importadas de CSV só permanecem se ainda existirem no arquivo
-    const stillExists = currentCsvIds.has(job.id);
-    if (!stillExists) removedCount++;
-    return stillExists;
-  });
-
-  saveJobsDatabase(filteredJobs);
-  return { addedCount, removedCount, total: filteredJobs.length };
-}
-
-// Sincronização inicial
-syncFromCsvFiles();
-
-// Helper de MIME Types
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.webp': 'image/webp',
 };
 
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(data));
+}
+
+function logActivity(opportunityId, eventType, prevValue, newValue, description) {
+  const actId = crypto.randomBytes(8).toString('hex');
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(actId, opportunityId, eventType, prevValue || '', newValue || '', description || '', now);
+}
+
+// ─── Servidor HTTP ────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
-  const method = req.method;
+  const pathname  = parsedUrl.pathname;
+  const query     = parsedUrl.query;
+  const method    = req.method;
 
-  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+  if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // --- ROTAS DA API ---
-
-  // 1. GET /api/jobs (Listar todas as vagas e estatísticas)
+  // ── GET /api/jobs ─────────────────────────────────────────────────────────
   if (pathname === '/api/jobs' && method === 'GET') {
-    const jobs = loadJobsDatabase();
-
-    const stats = {
-      total: jobs.length,
-      pending: jobs.filter(j => j.status === 'pending').length,
-      applied: jobs.filter(j => j.status === 'applied').length,
-      inProcess: jobs.filter(j => ['screening', 'technical', 'interview'].includes(j.status)).length,
-      offer: jobs.filter(j => j.status === 'offer').length,
-      rejected: jobs.filter(j => j.status === 'rejected').length
+    const filters = {
+      stage: query.stage || query.status || 'all',
+      workMode: query.workMode || 'all',
+      company: query.company || 'all',
+      search: query.search || ''
     };
-
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ success: true, stats, jobs, statusConfig: STATUS_CONFIG }));
+    const jobs  = getAllJobs(filters);
+    const stats = getStats();
+    const activities = getRecentActivities(20);
+    json(res, 200, { success: true, stats, jobs, activities, statusConfig: STATUS_CONFIG });
     return;
   }
 
-  // 2. POST /api/jobs (Criar nova vaga manual)
+  // ── GET /api/stats ────────────────────────────────────────────────────────
+  if (pathname === '/api/stats' && method === 'GET') {
+    const stats = getStats();
+    json(res, 200, { success: true, stats });
+    return;
+  }
+
+  // ── GET /api/activities ───────────────────────────────────────────────────
+  if (pathname === '/api/activities' && method === 'GET') {
+    const limit = parseInt(query.limit, 10) || 20;
+    const activities = getRecentActivities(limit);
+    json(res, 200, { success: true, activities });
+    return;
+  }
+
+  // ── GET /api/reports ──────────────────────────────────────────────────────
+  if (pathname === '/api/reports' && method === 'GET') {
+    const stats = getStats();
+    const funnel = [
+      { stage: 'Mapeadas', count: stats.total, rate: 100 },
+      { stage: 'Candidaturas', count: stats.total - stats.pending, rate: stats.total > 0 ? Math.round(((stats.total - stats.pending) / stats.total) * 100) : 0 },
+      { stage: 'Triagem / Ativos', count: stats.active + stats.offers, rate: stats.total > 0 ? Math.round(((stats.active + stats.offers) / stats.total) * 100) : 0 },
+      { stage: 'Propostas', count: stats.offers, rate: stats.total > 0 ? Math.round((stats.offers / stats.total) * 100) : 0 }
+    ];
+    json(res, 200, { success: true, stats, funnel, topLocations: stats.topLocations });
+    return;
+  }
+
+  // ── POST /api/jobs ────────────────────────────────────────────────────────
   if (pathname === '/api/jobs' && method === 'POST') {
     let body = '';
-    req.on('data', chunk => body += chunk);
+    req.on('data', c => body += c);
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
         if (!data.title || !data.company) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, error: 'Título e Empresa são obrigatórios.' }));
-          return;
+          json(res, 400, { success: false, error: 'Título e Empresa são obrigatórios.' }); return;
         }
+        const id  = 'job_' + crypto.randomBytes(6).toString('hex');
+        const cid = upsertCompany(data.company.trim());
+        const now = new Date().toLocaleString('pt-BR');
+        const nowIso = new Date().toISOString();
+        const stage = data.status || data.stage || 'pending';
 
-        const jobs = loadJobsDatabase();
-        const id = 'custom_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
-        const nowFormatted = new Date().toLocaleString('pt-BR');
+        db.prepare(`
+          INSERT INTO opportunities
+            (id, title, company_id, company_name, location, work_mode, stage, url, date_added, date_applied, source, notes, salary, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          id, data.title.trim(), cid, data.company.trim(),
+          data.location?.trim() || 'Brasil',
+          data.workMode || 'Remoto',
+          stage,
+          data.url?.trim() || '',
+          now,
+          stage === 'applied' ? now : (data.appliedDate || null),
+          'Cadastro Manual',
+          data.notes?.trim() || '',
+          data.salary?.trim() || '',
+          nowIso,
+          nowIso
+        );
 
-        const newJob = {
-          id,
-          title: data.title.trim(),
-          company: data.company.trim(),
-          location: data.location?.trim() || 'Brasil',
-          workMode: data.workMode || 'Remoto',
-          url: data.url?.trim() || '',
-          status: data.status || 'pending',
-          originalStatus: 'Cadastrado Manualmente',
-          dateAdded: nowFormatted,
-          appliedDate: data.status === 'applied' ? nowFormatted : (data.appliedDate || null),
-          source: data.source || 'Manual',
-          notes: data.notes?.trim() || '',
-          salary: data.salary?.trim() || '',
-          tags: data.tags || [],
-          updatedAt: new Date().toISOString()
-        };
+        logActivity(id, 'criacao', '', stage, `Nova vaga cadastrada: ${data.title.trim()} @ ${data.company.trim()}`);
+        if (stage === 'applied') syncBackToCsv();
 
-        jobs.unshift(newJob);
-        saveJobsDatabase(jobs);
-
-        res.writeHead(201, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, job: newJob }));
+        const job = mapJob(db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id));
+        json(res, 201, { success: true, job });
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'JSON inválido' }));
+        json(res, 400, { success: false, error: err.message });
       }
     });
     return;
   }
 
-  // 3. PUT /api/jobs/:id (Atualizar status, notas ou dados de uma vaga)
+  // ── PUT /api/jobs/:id ─────────────────────────────────────────────────────
   if (pathname.startsWith('/api/jobs/') && method === 'PUT') {
     const id = pathname.replace('/api/jobs/', '');
     let body = '';
-    req.on('data', chunk => body += chunk);
+    req.on('data', c => body += c);
     req.on('end', () => {
       try {
         const updates = JSON.parse(body);
-        const jobs = loadJobsDatabase();
-        const index = jobs.findIndex(j => j.id === id);
+        const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id);
+        if (!existing) { json(res, 404, { success: false, error: 'Vaga não encontrada' }); return; }
 
-        if (index === -1) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: false, error: 'Vaga não encontrada' }));
-          return;
-        }
+        const prevStage = existing.stage;
+        const sets = [];
+        const vals = [];
 
-        const job = jobs[index];
+        const fieldMap = {
+          title: 'title', company: 'company_name', location: 'location',
+          workMode: 'work_mode', url: 'url', status: 'stage', stage: 'stage',
+          notes: 'notes', salary: 'salary', appliedDate: 'date_applied'
+        };
 
-        // Se mudou para applied e não tinha appliedDate, preenche
-        if (updates.status === 'applied' && job.status !== 'applied' && !job.appliedDate) {
-          job.appliedDate = new Date().toLocaleString('pt-BR');
-        }
+        const targetStage = updates.status || updates.stage;
 
-        const allowedFields = ['title', 'company', 'location', 'workMode', 'url', 'status', 'notes', 'salary', 'appliedDate', 'tags'];
-        for (const field of allowedFields) {
-          if (updates[field] !== undefined) {
-            job[field] = updates[field];
+        for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
+          if (updates[jsKey] !== undefined) {
+            sets.push(`${dbCol} = ?`);
+            vals.push(updates[jsKey]);
           }
         }
-        job.updatedAt = new Date().toISOString();
 
-        saveJobsDatabase(jobs);
+        // Se mudou para applied, preenche date_applied se não houver
+        if (targetStage === 'applied' && prevStage !== 'applied' && !existing.date_applied) {
+          sets.push(`date_applied = ?`);
+          vals.push(new Date().toLocaleString('pt-BR'));
+        }
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, job }));
+        if (updates.company !== undefined) {
+          const cid = upsertCompany(updates.company.trim());
+          sets.push(`company_id = ?`);
+          vals.push(cid);
+        }
+
+        const nowIso = new Date().toISOString();
+        sets.push(`updated_at = ?`);
+        vals.push(nowIso);
+        vals.push(id);
+
+        if (sets.length > 1) {
+          db.prepare(`UPDATE opportunities SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+        }
+
+        // Auditoria
+        if (targetStage && targetStage !== prevStage) {
+          logActivity(id, 'mudanca_etapa', prevStage, targetStage,
+            `Etapa alterada: ${STATUS_CONFIG[prevStage]?.label || prevStage} → ${STATUS_CONFIG[targetStage]?.label || targetStage}`);
+        }
+        if (updates.notes !== undefined && updates.notes !== existing.notes) {
+          logActivity(id, 'anotacao', '', '', 'Anotação atualizada');
+        }
+
+        if (targetStage === 'applied' || prevStage === 'applied') {
+          syncBackToCsv();
+        }
+
+        const job = mapJob(db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id));
+        json(res, 200, { success: true, job });
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'Erro ao atualizar vaga' }));
+        json(res, 400, { success: false, error: err.message });
       }
     });
     return;
   }
 
-  // 4. DELETE /api/jobs/:id (Remover vaga)
+  // ── DELETE /api/jobs/:id ──────────────────────────────────────────────────
   if (pathname.startsWith('/api/jobs/') && method === 'DELETE') {
     const id = pathname.replace('/api/jobs/', '');
-    let jobs = loadJobsDatabase();
-    const initialLen = jobs.length;
-    jobs = jobs.filter(j => j.id !== id);
-
-    if (jobs.length === initialLen) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: 'Vaga não encontrada' }));
-      return;
-    }
-
-    saveJobsDatabase(jobs);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, message: 'Vaga removida com sucesso' }));
+    const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id);
+    const result = db.prepare(`DELETE FROM opportunities WHERE id = ?`).run(id);
+    if (result.changes === 0) { json(res, 404, { success: false, error: 'Vaga não encontrada' }); return; }
+    
+    if (existing?.stage === 'applied') syncBackToCsv();
+    json(res, 200, { success: true, message: 'Vaga removida com sucesso' });
     return;
   }
 
-  // 5. POST /api/sync (Sincronizar CSVs novos e remoções)
+  // ── POST /api/sync ────────────────────────────────────────────────────────
   if (pathname === '/api/sync' && method === 'POST') {
-    const result = syncFromCsvFiles();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    const added = seedFromCsvs();
+    const stats = getStats();
+    json(res, 200, {
       success: true,
-      message: `Sincronização concluída! ${result.addedCount} adicionadas, ${result.removedCount} removidas. Total: ${result.total}.`,
-      ...result
-    }));
+      message: `Sincronização concluída! ${added} nova(s) vaga(s) importada(s).`,
+      addedCount: added,
+      ...stats
+    });
     return;
   }
 
-  // 6. GET /api/bot/status (Consultar status e logs do robô)
+  // ── GET /api/companies ────────────────────────────────────────────────────
+  if (pathname === '/api/companies' && method === 'GET') {
+    const companies = db.prepare(`
+      SELECT c.id, c.name,
+             COUNT(o.id) AS total,
+             SUM(CASE WHEN o.stage NOT IN ('rejected') THEN 1 ELSE 0 END) AS active
+      FROM companies c
+      LEFT JOIN opportunities o ON o.company_id = c.id
+      GROUP BY c.id ORDER BY total DESC
+    `).all();
+    json(res, 200, { success: true, companies });
+    return;
+  }
+
+  // ── GET /api/bot/status ───────────────────────────────────────────────────
   if (pathname === '/api/bot/status' && method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    json(res, 200, {
       success: true,
       status: botStatus,
       isRunning: !!botProcess,
       logs: botLogs.slice(-150),
       startedAt: botStartedAt,
       finishedAt: botFinishedAt
-    }));
+    });
     return;
   }
 
-  // 7. POST /api/bot/start (Iniciar o robô LinkedIn)
+  // ── POST /api/bot/start ───────────────────────────────────────────────────
   if (pathname === '/api/bot/start' && method === 'POST') {
     if (botProcess) {
       try {
         process.kill(botProcess.pid, 0);
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ success: false, error: 'O robô já está em execução!' }));
+        json(res, 400, { success: false, error: 'O robô já está em execução!' });
         return;
       } catch (e) {
         botProcess = null;
       }
     }
-
     const pyCmd = getPythonCommand();
     botLogs = [];
-    botStartedAt = new Date().toISOString();
+    botStartedAt  = new Date().toISOString();
     botFinishedAt = null;
     botStatus = 'running';
+
+    const runId = crypto.randomBytes(8).toString('hex');
+    db.prepare(`INSERT INTO bot_runs (id, started_at, run_status) VALUES (?, ?, ?)`).run(runId, botStartedAt, 'running');
     addBotLog(`Iniciando o robô de candidaturas com: ${pyCmd} -u main.py`);
 
     try {
@@ -435,81 +347,73 @@ const server = http.createServer((req, res) => {
       botProcess = spawn(pyCmd, ['-u', 'main.py'], {
         cwd: ROOT_DIR,
         shell: !isDirectExe,
-        env: {
-          ...process.env,
-          PYTHONUNBUFFERED: '1',
-          PYTHONIOENCODING: 'utf-8'
-        }
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' }
       });
 
       botProcess.stdout.on('data', data => {
-        const str = data.toString();
+        const str = data.toString('utf-8');
         const lines = str.split(/\r?\n/).filter(l => l.trim().length > 0);
         for (const line of lines) {
           addBotLog(line);
-          if (line.includes('PAUSA: Resolva Captcha') || line.includes('Aperte ENTER aqui para continuar')) {
+          if (line.includes('PAUSA: Resolva Captcha') || line.includes('Aperte ENTER')) {
             botStatus = 'waiting_captcha';
           }
         }
       });
 
       botProcess.stderr.on('data', data => {
-        const str = data.toString();
-        const lines = str.split(/\r?\n/).filter(l => l.trim().length > 0);
-        for (const line of lines) {
-          addBotLog(`[INFO/AVISO] ${line}`);
-        }
+        data.toString('utf-8').split(/\r?\n/).filter(l => l.trim()).forEach(l => addBotLog(`[INFO] ${l}`));
       });
 
       botProcess.on('error', err => {
-        addBotLog(`Erro ao disparar processo: ${err.message}`);
+        addBotLog(`Erro: ${err.message}`);
         botStatus = 'error';
         botProcess = null;
         botFinishedAt = new Date().toISOString();
+        db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(botFinishedAt, 'error', runId);
       });
 
       botProcess.on('close', code => {
+        const status = code === 0 ? 'completed' : 'error';
         addBotLog(`Execução finalizada com código ${code}.`);
-        botStatus = (code === 0) ? 'completed' : 'error';
+        botStatus = status;
         botProcess = null;
         botFinishedAt = new Date().toISOString();
-        // Sincroniza automaticamente os CSVs para o dashboard
-        const syncResult = syncFromCsvFiles();
-        addBotLog(`Sincronização automática pós-execução: ${syncResult.addedCount} novas vagas adicionadas ao painel.`);
+        db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(botFinishedAt, status, runId);
+        
+        // Sincroniza automaticamente com os CSVs e banco
+        const added = seedFromCsvs();
+        addBotLog(`Sincronização automática pós-execução: ${added} nova(s) vaga(s) processada(s).`);
       });
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, message: 'Robô iniciado com sucesso!' }));
+      json(res, 200, { success: true, message: 'Robô iniciado com sucesso!' });
     } catch (err) {
       botStatus = 'error';
       botProcess = null;
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: err.message }));
+      db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(new Date().toISOString(), 'error', runId);
+      json(res, 500, { success: false, error: err.message });
     }
     return;
   }
 
-  // 8. POST /api/bot/continue (Enviar ENTER pós-captcha)
+  // ── POST /api/bot/continue ────────────────────────────────────────────────
   if (pathname === '/api/bot/continue' && method === 'POST') {
-    if (botProcess && botProcess.stdin) {
+    if (botProcess?.stdin) {
       try {
         botProcess.stdin.write('\n');
-        addBotLog('Confirmação de Captcha enviada (ENTER). Retomando busca...');
+        addBotLog('Captcha resolvido — retomando busca...');
         botStatus = 'running';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: 'Retomando execução...' }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'Falha ao enviar confirmação' }));
+        json(res, 200, { success: true });
+      } catch (e) {
+        json(res, 500, { success: false, error: 'Falha ao enviar confirmação' });
       }
     } else {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: 'O robô não está aguardando confirmação.' }));
+      json(res, 400, { success: false, error: 'O robô não está aguardando confirmação.' });
     }
     return;
   }
 
-  // 9. POST /api/bot/stop (Interromper o robô)
+  // ── POST /api/bot/stop ────────────────────────────────────────────────────
   if (pathname === '/api/bot/stop' && method === 'POST') {
     if (botProcess) {
       try {
@@ -518,49 +422,43 @@ const server = http.createServer((req, res) => {
         botProcess = null;
         botStatus = 'idle';
         botFinishedAt = new Date().toISOString();
-        syncFromCsvFiles();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: 'Robô interrompido com sucesso.' }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'Erro ao interromper' }));
+        json(res, 200, { success: true, message: 'Robô interrompido.' });
+      } catch (e) {
+        json(res, 500, { success: false, error: 'Erro ao interromper' });
       }
     } else {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: 'O robô não está em execução.' }));
+      json(res, 400, { success: false, error: 'O robô não está em execução.' });
     }
     return;
   }
 
-  // --- SERVIR ARQUIVOS ESTÁTICOS DO FRONTEND ---
-  let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
+  // ─── Arquivos estáticos ───────────────────────────────────────────────────
+  let safePath = path.normalize(pathname).replace(/^(\.\.[\\/])+/, '');
   if (safePath === '/' || safePath === '\\') safePath = '/index.html';
-
   const filePath = path.join(PUBLIC_DIR, safePath);
-  const ext = path.extname(filePath).toLowerCase();
+  const ext      = path.extname(filePath).toLowerCase();
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      const indexPath = path.join(PUBLIC_DIR, 'index.html');
-      if (fs.existsSync(indexPath)) {
+      const idx = path.join(PUBLIC_DIR, 'index.html');
+      if (fs.existsSync(idx)) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        fs.createReadStream(indexPath).pipe(res);
+        fs.createReadStream(idx).pipe(res);
       } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('404 Not Found');
       }
       return;
     }
-
-    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
     fs.createReadStream(filePath).pipe(res);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`\n======================================================`);
-  console.log(`🚀 DASHBOARD DO JOB TRACKER INICIADO COM SUCESSO!`);
-  console.log(`🌐 Acesse no seu navegador: http://localhost:${PORT}`);
-  console.log(`======================================================\n`);
+  console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+  console.log(`║   🥝  KIWI BOT — Career ATS Iniciado com Sucesso!            ║`);
+  console.log(`║   🌐  http://localhost:${PORT}                               ║`);
+  console.log(`║   🗄️   Banco Relacional: SQLite (kiwibot.db)                  ║`);
+  console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
 });

@@ -6,7 +6,16 @@
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": ["jobs", "tracker", "kanban", "linkedin", "automation"],
+  "keywords": [
+    "jobs",
+    "tracker",
+    "kanban",
+    "linkedin",
+    "automation"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  }
 }

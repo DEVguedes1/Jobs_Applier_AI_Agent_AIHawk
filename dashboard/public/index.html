@@ -1,85 +1,92 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JobPulse | Gestão de Oportunidades e Processos Seletivos</title>
-  <meta name="description" content="Plataforma analítica para acompanhamento de vagas, candidaturas e pipeline do processo seletivo.">
+  <title>Kiwi Bot | Seu Robô Caçador de Vagas</title>
+  <meta name="description"
+    content="Kiwi Bot — Plataforma de gestão de candidaturas com automação inteligente. Acompanhe seu pipeline de seleção em tempo real.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <!-- Chart.js para gráficos profissionais -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="css/style.css">
+
+  <!-- Favicon Oficial Kiwi Bot -->
+  <link rel="icon" type="image/png" href="/assets/icon.png">
 </head>
+
 <body>
-  <!-- Layout Principal do Sistema -->
   <div class="app-layout">
-    
-    <!-- SIDEBAR DE NAVEGAÇÃO -->
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SIDEBAR DE NAVEGAÇÃO
+    ═══════════════════════════════════════════════════════════ -->
     <aside class="sidebar">
-      <!-- Logo / Marca -->
+      <!-- Logo / Marca Kiwi Bot -->
       <div class="sidebar-brand">
-        <div class="brand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-            <rect width="20" height="14" x="2" y="6" rx="2"></rect>
-          </svg>
+        <div class="brand-icon" id="brandIconPlaceholder">
+          <img src="/assets/icon.png" alt="Kiwi Bot Mascot" class="brand-mascot-img">
         </div>
         <div class="brand-text">
-          <span class="brand-name">JobPulse</span>
-          <span class="brand-sub">Career ATS</span>
+          <span class="brand-name">Kiwi Bot</span>
+          <span class="brand-sub">Seu robô caçador de vagas</span>
         </div>
       </div>
 
       <!-- Menu Principal -->
       <nav class="sidebar-nav">
         <div class="nav-section-label">Principal</div>
-        <button class="nav-item active" data-view="dashboard">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect width="7" height="9" x="3" y="3" rx="1"></rect>
-            <rect width="7" height="5" x="14" y="3" rx="1"></rect>
-            <rect width="7" height="9" x="14" y="12" rx="1"></rect>
-            <rect width="7" height="5" x="3" y="16" rx="1"></rect>
+        <button class="nav-item active" data-view="dashboard" id="nav-dashboard">
+          <svg class="nav-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="7" height="9" x="3" y="3" rx="1" />
+            <rect width="7" height="5" x="14" y="3" rx="1" />
+            <rect width="7" height="9" x="14" y="12" rx="1" />
+            <rect width="7" height="5" x="3" y="16" rx="1" />
           </svg>
           <span>Dashboard</span>
         </button>
 
-        <button class="nav-item" data-view="opportunities">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect width="20" height="14" x="2" y="7" rx="2" ry="2"></rect>
-            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+        <button class="nav-item" data-view="opportunities" id="nav-opportunities">
+          <svg class="nav-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="20" height="14" x="2" y="7" rx="2" />
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
           </svg>
           <span>Oportunidades</span>
           <span class="nav-badge" id="badgeTotalOpps">0</span>
         </button>
 
-        <button class="nav-item" data-view="pipeline">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 3h5v18H4zM10 3h5v11h-5zM16 3h4v15h-4z"></path>
+        <button class="nav-item" data-view="pipeline" id="nav-pipeline">
+          <svg class="nav-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 3h5v18H4zM10 3h5v11h-5zM16 3h4v15h-4z" />
           </svg>
           <span>Pipeline (Kanban)</span>
         </button>
 
-        <button class="nav-item" data-view="companies">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
-            <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
-            <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
-            <path d="M10 6h4"></path>
-            <path d="M10 10h4"></path>
-            <path d="M10 14h4"></path>
-            <path d="M10 18h4"></path>
+        <button class="nav-item" data-view="companies" id="nav-companies">
+          <svg class="nav-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+            <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+            <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+            <path d="M10 6h4M10 10h4M10 14h4M10 18h4" />
           </svg>
           <span>Empresas</span>
           <span class="nav-badge" id="badgeTotalCompanies">0</span>
         </button>
 
-        <div class="nav-section-label" style="margin-top: 20px;">Análise</div>
-        <button class="nav-item" data-view="reports">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 3v18h18"></path>
-            <path d="m19 9-5 5-4-4-3 3"></path>
+        <div class="nav-section-label" style="margin-top:18px">Análise</div>
+        <button class="nav-item" data-view="reports" id="nav-reports">
+          <svg class="nav-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18" />
+            <path d="m19 9-5 5-4-4-3 3" />
           </svg>
           <span>Relatórios</span>
         </button>
@@ -96,26 +103,33 @@
         </div>
 
         <div class="user-profile-pill">
-          <div class="user-avatar">C</div>
+          <div class="user-avatar-wrap">
+            <img src="/assets/icon.png" alt="Kiwi Bot Mascot" class="user-avatar-img">
+          </div>
           <div class="user-details">
             <span class="user-name">Candidato</span>
-            <span class="user-status">Buscando Vagas</span>
+            <span class="user-status">🥝 katchau...</span>
           </div>
         </div>
-      </div>
     </aside>
 
-    <!-- ÁREA PRINCIPAL -->
+    <!-- Backdrop para fechar menu no mobile -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         ÁREA PRINCIPAL
+    ═══════════════════════════════════════════════════════════ -->
     <div class="main-wrapper">
-      
-      <!-- TOPBAR / CABEÇALHO -->
+
+      <!-- TOPBAR -->
       <header class="topbar">
         <div class="topbar-left">
           <button class="btn-sidebar-toggle" id="btnToggleSidebar" aria-label="Alternar Menu">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="4" x2="20" y1="12" y2="12"></line>
-              <line x1="4" x2="20" y1="6" y2="6"></line>
-              <line x1="4" x2="20" y1="18" y2="18"></line>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" x2="20" y1="12" y2="12" />
+              <line x1="4" x2="20" y1="6" y2="6" />
+              <line x1="4" x2="20" y1="18" y2="18" />
             </svg>
           </button>
           <div class="page-header-title">
@@ -125,54 +139,58 @@
         </div>
 
         <div class="topbar-right">
-          <!-- Campo de Busca Global -->
+          <!-- Busca Global -->
           <div class="global-search-container">
-            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <path d="m21 21-4.3-4.3"></path>
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
             </svg>
-            <input type="text" id="globalSearchInput" placeholder="Buscar cargo, empresa, local..." autocomplete="off">
+            <input type="text" id="globalSearchInput" placeholder="Buscar cargo, empresa, local…" autocomplete="off">
             <kbd class="search-kbd">/</kbd>
           </div>
 
-          <!-- Ação: Sincronizar CSVs -->
-          <button class="btn btn-secondary" id="btnSyncCsv" title="Sincronizar dados do robô">
-            <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-              <path d="M21 3v5h-5"></path>
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
-              <path d="M8 16H3v5"></path>
+          <!-- Sincronizar -->
+          <button class="btn btn-secondary" id="btnSyncCsv" title="Sincronizar dados do robô" aria-label="Sincronizar">
+            <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M8 16H3v5" />
             </svg>
-            <span>Sincronizar</span>
+            <span class="btn-text">Sincronizar</span>
           </button>
 
-          <!-- Ação: Executar Robô LinkedIn -->
-          <button class="btn btn-success" id="btnOpenBotModal" title="Executar buscas automáticas com o robô no LinkedIn">
-            <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          <!-- Executar Robô -->
+          <button class="btn btn-success" id="btnOpenBotModal"
+            title="Executar buscas automáticas com o robô no LinkedIn" aria-label="Executar Robô">
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
-            <span>Executar Robô</span>
+            <span class="btn-text">Executar Robô</span>
           </button>
 
-          <!-- Ação: Nova Vaga -->
-          <button class="btn btn-primary" id="btnOpenNewJobModal">
-            <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"></path>
+          <!-- Nova Oportunidade -->
+          <button class="btn btn-primary" id="btnOpenNewJobModal" title="Cadastrar nova vaga" aria-label="Nova Vaga">
+            <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14" />
             </svg>
-            <span>Nova Oportunidade</span>
+            <span class="btn-text">Nova Vaga</span>
           </button>
         </div>
       </header>
 
-      <!-- CONTEÚDO PRINCIPAL (RENDERIZADO POR ABA) -->
+      <!-- CONTEÚDO PRINCIPAL -->
       <main class="content-body">
 
-        <!-- ========================================== -->
-        <!-- ABA 1: DASHBOARD ANALÍTICO                 -->
-        <!-- ========================================== -->
+        <!-- ══════════════════════════════════════════
+             ABA 1: DASHBOARD ANALÍTICO
+        ══════════════════════════════════════════ -->
         <section id="view-dashboard" class="view-panel active">
-          
-          <!-- Indicadores Primários (KPIs) -->
+
+          <!-- KPIs -->
           <div class="kpi-strip">
             <div class="kpi-metric-card">
               <span class="metric-label">Oportunidades</span>
@@ -229,23 +247,19 @@
             </div>
           </div>
 
-          <!-- Seção de Gráficos e Análise -->
+          <!-- Gráficos -->
           <div class="dashboard-analytics-grid">
-            
-            <!-- Gráfico 1: Funil de Conversão do Processo -->
+
             <div class="analytics-card span-2">
               <div class="analytics-card-header">
                 <div>
                   <h3 class="card-title">Funil do Processo Seletivo</h3>
-                  <p class="card-description">Avanço proporcional dos candidatos pelas etapas de seleção</p>
+                  <p class="card-description">Avanço proporcional pelos estágios de seleção</p>
                 </div>
               </div>
-              <div class="funnel-container" id="funnelVisualizer">
-                <!-- Renderizado dinamicamente via JavaScript -->
-              </div>
+              <div class="funnel-container" id="funnelVisualizer"></div>
             </div>
 
-            <!-- Gráfico 2: Distribuição por Modalidade -->
             <div class="analytics-card">
               <div class="analytics-card-header">
                 <div>
@@ -258,20 +272,18 @@
               </div>
             </div>
 
-            <!-- Gráfico 3: Candidaturas por Etapa -->
             <div class="analytics-card span-2">
               <div class="analytics-card-header">
                 <div>
                   <h3 class="card-title">Distribuição por Etapas do Pipeline</h3>
-                  <p class="card-description">Volume absoluto de vagas alocadas em cada fase</p>
+                  <p class="card-description">Volume de vagas alocadas em cada fase</p>
                 </div>
               </div>
-              <div class="chart-box" style="height: 240px;">
+              <div class="chart-box" style="height:240px">
                 <canvas id="chartStagesBar"></canvas>
               </div>
             </div>
 
-            <!-- Feed de Atividades Recentes -->
             <div class="analytics-card">
               <div class="analytics-card-header">
                 <div>
@@ -279,20 +291,17 @@
                   <p class="card-description">Últimas movimentações e candidaturas</p>
                 </div>
               </div>
-              <div class="recent-activities-list" id="recentActivitiesList">
-                <!-- Lista de atividades renderizada via JS -->
-              </div>
+              <div class="recent-activities-list" id="recentActivitiesList"></div>
             </div>
 
           </div>
         </section>
 
-        <!-- ========================================== -->
-        <!-- ABA 2: OPORTUNIDADES (TABELA DEDICADA)    -->
-        <!-- ========================================== -->
+        <!-- ══════════════════════════════════════════
+             ABA 2: OPORTUNIDADES
+        ══════════════════════════════════════════ -->
         <section id="view-opportunities" class="view-panel">
-          
-          <!-- Barra de Filtros e Controles -->
+
           <div class="toolbar-card">
             <div class="toolbar-filters">
               <div class="filter-control">
@@ -326,20 +335,19 @@
                 </select>
               </div>
 
-              <button class="btn btn-ghost btn-sm" id="btnResetTableFilters" style="margin-top: auto; height: 36px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <button class="btn btn-ghost btn-sm" id="btnResetTableFilters" style="margin-top:auto;height:34px">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
                 </svg>
-                <span>Limpar Filtros</span>
+                <span>Limpar</span>
               </button>
             </div>
 
             <div class="toolbar-info">
-              <span>Exibindo <strong id="tableFilteredCount">0</strong> de <span id="tableTotalCount">0</span> vagas</span>
+              Exibindo <strong id="tableFilteredCount">0</strong> de <span id="tableTotalCount">0</span> vagas
             </div>
           </div>
 
-          <!-- Tabela de Oportunidades -->
           <div class="table-card">
             <div class="table-responsive">
               <table class="data-table">
@@ -347,35 +355,28 @@
                   <tr>
                     <th>Cargo / Título</th>
                     <th>Empresa</th>
-                    <th>Localidade & Modelo</th>
+                    <th>Localidade &amp; Modelo</th>
                     <th>Etapa Atual</th>
                     <th>Data</th>
-                    <th style="text-align: right;">Ações</th>
+                    <th style="text-align:right">Ações</th>
                   </tr>
                 </thead>
-                <tbody id="opportunitiesTableBody">
-                  <!-- Linhas renderizadas via JS -->
-                </tbody>
+                <tbody id="opportunitiesTableBody"></tbody>
               </table>
             </div>
 
             <div id="tableEmptyState" class="empty-state-box hidden">
-              <div class="empty-icon-wrap">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="11" cy="11" r="8"></circle>
-                  <path d="m21 21-4.3-4.3"></path>
-                </svg>
-              </div>
+              <img src="/assets/icon.png" class="empty-mascot-img" alt="Kiwi Bot Mascot">
               <h4>Nenhuma oportunidade encontrada</h4>
-              <p>Tente ajustar os filtros ou buscar por outro termo.</p>
+              <p>O Kiwi ainda não encontrou vagas com esses filtros. Tente ajustar a busca!</p>
               <button class="btn btn-secondary btn-sm" id="btnEmptyReset">Restaurar visualização</button>
             </div>
           </div>
         </section>
 
-        <!-- ========================================== -->
-        <!-- ABA 3: PIPELINE (KANBAN BOARD REFINADO)    -->
-        <!-- ========================================== -->
+        <!-- ══════════════════════════════════════════
+             ABA 3: PIPELINE KANBAN
+        ══════════════════════════════════════════ -->
         <section id="view-pipeline" class="view-panel">
           <div class="pipeline-header-bar">
             <div class="pipeline-legend">
@@ -387,39 +388,33 @@
               <span class="legend-item"><span class="legend-dot status-offer"></span> Proposta</span>
               <span class="legend-item"><span class="legend-dot status-rejected"></span> Encerrado</span>
             </div>
-            <div class="pipeline-meta-info">
-              Arraste e solte os cards para avançar ou regredir etapas
-            </div>
+            <div class="pipeline-meta-info">Arraste os cards para avançar etapas</div>
           </div>
-
-          <div class="kanban-columns-container" id="kanbanContainer">
-            <!-- 7 Colunas renderizadas dinamicamente via JS -->
-          </div>
+          <!-- Barra rápida de estágios para mobile / navegação horizontal -->
+          <div class="pipeline-stage-pills" id="pipelineStagePills"></div>
+          <div class="kanban-columns-container" id="kanbanContainer"></div>
         </section>
 
-        <!-- ========================================== -->
-        <!-- ABA 4: EMPRESAS (DIRETÓRIO CONTRATANTE)   -->
-        <!-- ========================================== -->
+        <!-- ══════════════════════════════════════════
+             ABA 4: EMPRESAS
+        ══════════════════════════════════════════ -->
         <section id="view-companies" class="view-panel">
-          <div class="companies-grid" id="companiesGrid">
-            <!-- Cards de empresas renderizados via JS -->
-          </div>
+          <div class="companies-grid" id="companiesGrid"></div>
         </section>
 
-        <!-- ========================================== -->
-        <!-- ABA 5: RELATÓRIOS (ANÁLISE DE CONVERSÃO)   -->
-        <!-- ========================================== -->
+        <!-- ══════════════════════════════════════════
+             ABA 5: RELATÓRIOS
+        ══════════════════════════════════════════ -->
         <section id="view-reports" class="view-panel">
           <div class="reports-container">
             <div class="analytics-card">
               <div class="analytics-card-header">
                 <div>
                   <h3 class="card-title">Métricas de Desempenho do Funil</h3>
-                  <p class="card-description">Análise detalhada de taxas de passagem entre cada fase do processo</p>
+                  <p class="card-description">Taxas de passagem entre cada fase do processo</p>
                 </div>
               </div>
-              
-              <div class="table-responsive" style="margin-top: 16px;">
+              <div class="table-responsive" style="margin-top:16px">
                 <table class="data-table">
                   <thead>
                     <tr>
@@ -430,26 +425,19 @@
                       <th>Status Geral</th>
                     </tr>
                   </thead>
-                  <tbody id="reportFunnelTableBody">
-                    <!-- Gerado via JS -->
-                  </tbody>
+                  <tbody id="reportFunnelTableBody"></tbody>
                 </table>
               </div>
             </div>
 
             <div class="reports-insights-grid">
               <div class="analytics-card">
-                <h4 class="card-title" style="margin-bottom: 8px;">Insights & Recomendações</h4>
-                <div class="insights-list" id="insightsList">
-                  <!-- Gerado dinamicamente -->
-                </div>
+                <h4 class="card-title" style="margin-bottom:12px">Insights &amp; Recomendações</h4>
+                <div class="insights-list" id="insightsList"></div>
               </div>
-
               <div class="analytics-card">
-                <h4 class="card-title" style="margin-bottom: 8px;">Distribuição por Localidade</h4>
-                <div class="locations-progress-list" id="locationsList">
-                  <!-- Gerado dinamicamente -->
-                </div>
+                <h4 class="card-title" style="margin-bottom:12px">Distribuição por Localidade</h4>
+                <div class="locations-progress-list" id="locationsList"></div>
               </div>
             </div>
           </div>
@@ -459,13 +447,11 @@
     </div>
   </div>
 
-  <!-- ========================================== -->
-  <!-- DRAWER LATERAL: DETALHES DA OPORTUNIDADE  -->
-  <!-- ========================================== -->
+  <!-- ═══════════════════════════════════════════════════════════
+       DRAWER LATERAL: DETALHES DA OPORTUNIDADE
+  ═══════════════════════════════════════════════════════════ -->
   <div id="drawerOverlay" class="drawer-overlay hidden">
     <div class="drawer-panel" id="drawerPanel">
-      
-      <!-- Cabeçalho do Drawer -->
       <div class="drawer-header">
         <div class="drawer-title-group">
           <div class="drawer-tag-row">
@@ -476,37 +462,31 @@
           <p id="drawerCompany" class="drawer-subtitle">Empresa Exemplo</p>
         </div>
         <button class="drawer-close-btn" id="btnCloseDrawer" aria-label="Fechar painel">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6 6 18M6 6l12 12"></path>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>
       </div>
 
-      <!-- Corpo com Detalhes e Formulário -->
       <div class="drawer-body">
-        
-        <!-- Ações Principais de Destaque -->
         <div class="drawer-action-strip">
           <a id="drawerExternalLink" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary flex-1">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-              <polyline points="15 3 21 3 21 9"></polyline>
-              <line x1="10" x2="21" y1="14" y2="3"></line>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" x2="21" y1="14" y2="3" />
             </svg>
             <span>Acessar Vaga Original</span>
           </a>
-
           <button id="drawerBtnQuickApply" class="btn btn-success flex-1 hidden">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 6 9 17l-5-5"></path>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 6 9 17l-5-5" />
             </svg>
             <span>Marcar como Candidatado</span>
           </button>
         </div>
 
-        <!-- Formulário de Edição da Vaga -->
         <div class="form-grid">
-          
           <div class="form-field span-2">
             <label for="drawerInputStatus">Etapa do Processo Seletivo</label>
             <select id="drawerInputStatus" class="form-select">
@@ -537,7 +517,7 @@
 
           <div class="form-field">
             <label for="drawerInputSalary">Salário / Pretensão</label>
-            <input type="text" id="drawerInputSalary" class="form-input" placeholder="Ex: R$ 4.000 / Bolsa">
+            <input type="text" id="drawerInputSalary" class="form-input" placeholder="Ex: R$ 4.000">
           </div>
 
           <div class="form-field">
@@ -552,40 +532,35 @@
 
           <div class="form-field span-2">
             <label for="drawerInputNotes">Anotações do Processo</label>
-            <textarea id="drawerInputNotes" class="form-textarea" rows="4" placeholder="Adicione informações sobre conversas com RH, datas de entrevistas agendadas, links de testes ou feedbacks recebidos..."></textarea>
+            <textarea id="drawerInputNotes" class="form-textarea" rows="4"
+              placeholder="Conversas com RH, datas de entrevistas, links de testes, feedbacks…"></textarea>
           </div>
-
         </div>
 
-        <!-- Metadados de Auditoria -->
         <div class="drawer-audit-meta">
           <span id="drawerMetaSource">Origem: Robô LinkedIn</span>
-          <span id="drawerMetaUpdated">Última atualização: -</span>
+          <span id="drawerMetaUpdated">Última atualização: —</span>
         </div>
-
       </div>
 
-      <!-- Rodapé do Drawer com Ações Salvar e Excluir -->
       <div class="drawer-footer">
         <button id="drawerBtnDelete" class="btn btn-danger-outline">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
           </svg>
           <span>Excluir</span>
         </button>
-
         <div class="footer-btn-group">
           <button id="drawerBtnCancel" class="btn btn-ghost">Cancelar</button>
           <button id="drawerBtnSave" class="btn btn-primary">Salvar Alterações</button>
         </div>
       </div>
-
     </div>
   </div>
 
-  <!-- ========================================== -->
-  <!-- MODAL: CADASTRAR NOVA OPORTUNIDADE        -->
-  <!-- ========================================== -->
+  <!-- ═══════════════════════════════════════════════════════════
+       MODAL: CADASTRAR NOVA OPORTUNIDADE
+  ═══════════════════════════════════════════════════════════ -->
   <div id="modalNewJob" class="modal-backdrop hidden">
     <div class="modal-dialog">
       <div class="modal-dialog-header">
@@ -594,25 +569,23 @@
           <p class="modal-sub">Registre vagas encontradas em qualquer plataforma ou rede</p>
         </div>
         <button class="modal-close-icon" id="btnCloseNewJobModal" aria-label="Fechar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6 6 18M6 6l12 12"></path>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>
       </div>
 
       <form id="formCreateJob" class="modal-dialog-body">
         <div class="form-grid">
-          
           <div class="form-field span-2">
             <label for="newJobTitle">Cargo / Título da Vaga <span class="req">*</span></label>
-            <input type="text" id="newJobTitle" required class="form-input" placeholder="Ex: Desenvolvedor Front-end Júnior">
+            <input type="text" id="newJobTitle" required class="form-input"
+              placeholder="Ex: Desenvolvedor Front-end Júnior">
           </div>
-
           <div class="form-field span-2">
             <label for="newJobCompany">Empresa <span class="req">*</span></label>
             <input type="text" id="newJobCompany" required class="form-input" placeholder="Ex: Mercado Livre">
           </div>
-
           <div class="form-field">
             <label for="newJobWorkMode">Modalidade</label>
             <select id="newJobWorkMode" class="form-select">
@@ -622,7 +595,6 @@
               <option value="Não especificado">Não especificado</option>
             </select>
           </div>
-
           <div class="form-field">
             <label for="newJobStatus">Etapa Inicial</label>
             <select id="newJobStatus" class="form-select">
@@ -633,78 +605,78 @@
               <option value="interview">Entrevista</option>
             </select>
           </div>
-
           <div class="form-field">
             <label for="newJobLocation">Localidade</label>
             <input type="text" id="newJobLocation" class="form-input" placeholder="Ex: Brasil ou São Paulo">
           </div>
-
           <div class="form-field">
-            <label for="newJobSalary">Salário / Pretensão (opcional)</label>
+            <label for="newJobSalary">Salário / Pretensão</label>
             <input type="text" id="newJobSalary" class="form-input" placeholder="Ex: R$ 3.500">
           </div>
-
           <div class="form-field span-2">
             <label for="newJobUrl">Link da Vaga</label>
             <input type="url" id="newJobUrl" class="form-input" placeholder="https://...">
           </div>
-
           <div class="form-field span-2">
             <label for="newJobNotes">Anotações Iniciais</label>
-            <textarea id="newJobNotes" class="form-textarea" rows="3" placeholder="Informações relevantes, requisitos ou contatos..."></textarea>
+            <textarea id="newJobNotes" class="form-textarea" rows="3"
+              placeholder="Informações relevantes, requisitos ou contatos…"></textarea>
           </div>
-
         </div>
 
         <div class="modal-dialog-footer">
           <button type="button" class="btn btn-ghost" id="btnCancelNewJob">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Cadastrar Vaga</button>
+          <button type="submit" class="btn btn-primary">🥝 Cadastrar Vaga</button>
         </div>
       </form>
     </div>
-  <!-- ========================================== -->
-  <!-- MODAL: EXECUTAR ROBÔ LINKEDIN              -->
-  <!-- ========================================== -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MODAL: EXECUTAR ROBÔ LINKEDIN
+  ═══════════════════════════════════════════════════════════ -->
   <div id="modalBotRunner" class="modal-backdrop hidden">
-    <div class="modal-dialog" style="max-width: 660px;">
+    <div class="modal-dialog" style="max-width:660px">
       <div class="modal-dialog-header">
         <div>
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display:flex;align-items:center;gap:8px">
             <h3>Execução do Robô LinkedIn</h3>
-            <span class="status-pill" id="botStatusBadge" style="font-size: 0.6875rem; background-color: var(--bg-surface-subtle); color: var(--text-secondary);">Parado</span>
+            <span class="status-pill" id="botStatusBadge"
+              style="font-size:0.6875rem;background:var(--bg-surface-subtle);color:var(--text-secondary)">Parado</span>
           </div>
           <p class="modal-sub">Busca e candidatura automática às vagas configuradas</p>
         </div>
         <button class="modal-close-icon" id="btnCloseBotModal" aria-label="Fechar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6 6 18M6 6l12 12"></path>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>
       </div>
 
-      <div class="modal-dialog-body" style="gap: 14px;">
-        <!-- Banner de Alerta para Captcha -->
+      <div class="modal-dialog-body" style="gap:14px">
+        <!-- Alerta Captcha -->
         <div id="botCaptchaAlert" class="bot-captcha-banner hidden">
           <div class="captcha-banner-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <strong>Atenção: Verificação / CAPTCHA Solicitado</strong>
           </div>
-          <p style="font-size: 0.8125rem; margin-top: 4px; color: var(--text-secondary);">
-            O LinkedIn abriu uma janela do Chrome solicitando verificação. Resolva o Captcha ou 2FA até chegar ao Feed principal e clique no botão abaixo para o robô continuar:
+          <p style="font-size:0.8125rem;margin-top:4px;color:var(--text-secondary)">
+            O LinkedIn solicitou verificação. Resolva o Captcha/2FA no Chrome e clique no botão abaixo:
           </p>
-          <button type="button" class="btn btn-success btn-sm" id="btnBotConfirmCaptcha" style="margin-top: 10px; width: 100%;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12"></polyline>
+          <button type="button" class="btn btn-success btn-sm" id="btnBotConfirmCaptcha"
+            style="margin-top:10px;width:100%">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
             </svg>
-            <span>Já resolvi no Chrome / Estou no Feed (Continuar Busca)</span>
+            <span>Já resolvi no Chrome — Continuar Busca</span>
           </button>
         </div>
 
-        <!-- Terminal Console de Logs Ao Vivo -->
+        <!-- Terminal de Logs -->
         <div class="bot-terminal-container">
           <div class="terminal-bar">
             <div class="terminal-dots">
@@ -715,22 +687,21 @@
             <span class="terminal-title">Terminal de Execução (Ao vivo)</span>
           </div>
           <div class="terminal-screen" id="botTerminalLogs">
-            <div class="terminal-line" style="color: var(--text-muted);">Pronto para iniciar. Clique em "Iniciar Busca" abaixo.</div>
+            <div class="terminal-line" style="color:var(--text-muted)">🥝 Pronto para iniciar. Clique em "Iniciar Busca"
+              abaixo.</div>
           </div>
         </div>
       </div>
 
-      <div class="modal-dialog-footer" style="justify-content: space-between;">
+      <div class="modal-dialog-footer" style="justify-content:space-between">
         <div>
-          <button type="button" class="btn btn-danger-outline btn-sm hidden" id="btnBotStop">
-            Interromper
-          </button>
+          <button type="button" class="btn btn-danger-outline btn-sm hidden" id="btnBotStop">Interromper</button>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display:flex;gap:8px">
           <button type="button" class="btn btn-ghost" id="btnCancelBotModal">Fechar</button>
           <button type="button" class="btn btn-success" id="btnBotStart">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
             <span>Iniciar Busca</span>
           </button>
@@ -739,10 +710,53 @@
     </div>
   </div>
 
-  <!-- Container de Mensagens Toast -->
+  <!-- Toast Stack -->
   <div id="toastNotificationStack" class="toast-stack"></div>
 
-  <!-- Script da Aplicação -->
+  <!-- ═══════════════════════════════════════════════════════════
+       BARRA DE NAVEGAÇÃO INFERIOR PARA MOBILE (<= 768px)
+  ═══════════════════════════════════════════════════════════ -->
+  <nav class="mobile-bottom-bar" id="mobileBottomBar">
+    <button class="mobile-nav-btn active" data-view="dashboard" aria-label="Dashboard">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect width="7" height="9" x="3" y="3" rx="1" />
+        <rect width="7" height="5" x="14" y="3" rx="1" />
+        <rect width="7" height="9" x="14" y="12" rx="1" />
+        <rect width="7" height="5" x="3" y="16" rx="1" />
+      </svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="mobile-nav-btn" data-view="opportunities" aria-label="Oportunidades">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect width="20" height="14" x="2" y="7" rx="2" />
+        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      </svg>
+      <span>Vagas</span>
+    </button>
+    <button class="mobile-nav-btn" data-view="pipeline" aria-label="Pipeline Kanban">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 3h5v18H4zM10 3h5v11h-5zM16 3h4v15h-4z" />
+      </svg>
+      <span>Kanban</span>
+    </button>
+    <button class="mobile-nav-btn" data-view="companies" aria-label="Empresas">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+        <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+        <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+      </svg>
+      <span>Empresas</span>
+    </button>
+    <button class="mobile-nav-btn" data-view="reports" aria-label="Relatórios">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 3v18h18" />
+        <path d="m19 9-5 5-4-4-3 3" />
+      </svg>
+      <span>Métricas</span>
+    </button>
+  </nav>
+
   <script src="js/app.js"></script>
 </body>
+
 </html>

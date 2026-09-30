@@ -1,5 +1,5 @@
 /**
- * JobPulse - Career ATS & Pipeline Management
+ * Kiwi Bot - Career ATS & Pipeline Management
  * Frontend Architecture: Modular, Responsive, Data-Driven
  */
 
@@ -8,6 +8,7 @@ const appState = {
   jobs: [],
   stats: {},
   statusConfig: {},
+  activities: [],
   currentView: 'dashboard',
   selectedJobId: null,
   filters: {
@@ -22,15 +23,15 @@ const appState = {
   }
 };
 
-// Definição Semântica das Etapas do Processo
+// Definição Semântica das Etapas do Processo — Estritamente Preto & Verde Kiwi
 const STAGE_DEFINITIONS = [
-  { key: 'pending', label: 'Pendente / Link Externo', color: 'var(--status-pending)' },
-  { key: 'applied', label: 'Candidatura Enviada', color: 'var(--status-applied)' },
-  { key: 'screening', label: 'Triagem / Contato RH', color: 'var(--status-screening)' },
-  { key: 'technical', label: 'Desafio Técnico', color: 'var(--status-technical)' },
-  { key: 'interview', label: 'Entrevista', color: 'var(--status-interview)' },
-  { key: 'offer', label: 'Proposta / Oferta', color: 'var(--status-offer)' },
-  { key: 'rejected', label: 'Não Selecionado', color: 'var(--status-rejected)' }
+  { key: 'pending', label: 'Pendente / Link Externo', color: '#86EFAC' },
+  { key: 'applied', label: 'Candidatura Enviada', color: '#22C55E' },
+  { key: 'screening', label: 'Triagem / Contato RH', color: '#16A34A' },
+  { key: 'technical', label: 'Desafio Técnico', color: '#34D399' },
+  { key: 'interview', label: 'Entrevista', color: '#4ADE80' },
+  { key: 'offer', label: 'Proposta / Oferta', color: '#22C55E' },
+  { key: 'rejected', label: 'Não Selecionado', color: '#71717A' }
 ];
 
 // Metadados das Telas do Menu
@@ -61,6 +62,8 @@ const VIEW_METADATA = {
 const dom = {
   // Navegação
   navItems: document.querySelectorAll('.nav-item'),
+  mobileNavBtns: document.querySelectorAll('.mobile-nav-btn'),
+  pipelineStagePills: document.getElementById('pipelineStagePills'),
   views: document.querySelectorAll('.view-panel'),
   pageTitle: document.getElementById('currentPageTitle'),
   pageSubtitle: document.getElementById('currentPageSubtitle'),
@@ -68,6 +71,7 @@ const dom = {
   badgeTotalCompanies: document.getElementById('badgeTotalCompanies'),
   btnToggleSidebar: document.getElementById('btnToggleSidebar'),
   sidebar: document.querySelector('.sidebar'),
+  sidebarBackdrop: document.getElementById('sidebarBackdrop'),
 
   // Busca e Topbar
   globalSearch: document.getElementById('globalSearchInput'),
@@ -156,10 +160,11 @@ async function loadData() {
     const res = await fetch('/api/jobs');
     const data = await res.json();
     if (data.success) {
-      appState.jobs = data.jobs || [];
-      appState.stats = data.stats || {};
+      appState.jobs       = data.jobs       || [];
+      appState.stats      = data.stats      || {};
       appState.statusConfig = data.statusConfig || {};
-      
+      appState.activities = data.activities || [];
+
       populateCompanyFilter();
       updateAllViews();
       pollBotStatus();
@@ -182,11 +187,17 @@ async function updateOpportunity(id, payload) {
       if (idx !== -1) {
         appState.jobs[idx] = data.job;
       }
+      // Atualiza estatísticas em background
+      fetch('/api/stats').then(r => r.json()).then(s => {
+        if (s.success) appState.stats = s.stats;
+      }).catch(() => {});
       updateAllViews();
       return true;
     }
+    showToast(data.error || 'Não foi possível atualizar a oportunidade', 'error');
+    return false;
   } catch (err) {
-    showToast('Não foi possível atualizar a oportunidade', 'error');
+    showToast('Falha na comunicação com o servidor', 'error');
     return false;
   }
 }
@@ -232,19 +243,19 @@ async function deleteOpportunity(id) {
 async function triggerCsvSync() {
   const btn = dom.btnSyncCsv;
   btn.disabled = true;
-  btn.style.opacity = '0.6';
+  btn.innerHTML = `<svg class="btn-icon skeleton" width="15" height="15" viewBox="0 0 24 24" style="border-radius:50%"></svg><span>Sincronizando…</span>`;
   try {
     const res = await fetch('/api/sync', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast(data.message || 'Sincronização concluída com sucesso', 'success');
+      showToast(data.message || 'Sincronização concluída!', 'success');
       await loadData();
     }
   } catch (err) {
-    showToast('Falha na sincronização dos arquivos CSV', 'error');
+    showToast('Falha na sincronização', 'error');
   } finally {
     btn.disabled = false;
-    btn.style.opacity = '1';
+    btn.innerHTML = `<svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span>Sincronizar</span>`;
   }
 }
 
@@ -260,6 +271,13 @@ function switchView(viewKey) {
     btn.classList.toggle('active', btn.dataset.view === viewKey);
   });
 
+  // Atualiza barra de navegação inferior mobile
+  if (dom.mobileNavBtns) {
+    dom.mobileNavBtns.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === viewKey);
+    });
+  }
+
   // Atualiza título da Topbar
   dom.pageTitle.textContent = VIEW_METADATA[viewKey].title;
   dom.pageSubtitle.textContent = VIEW_METADATA[viewKey].subtitle;
@@ -274,6 +292,7 @@ function switchView(viewKey) {
 
   // Fecha sidebar no mobile
   dom.sidebar.classList.remove('open');
+  if (dom.sidebarBackdrop) dom.sidebarBackdrop.classList.remove('active');
 
   // Atualiza renderização específica da tela
   renderActiveView();
@@ -308,16 +327,17 @@ function renderActiveView() {
 // RENDERIZAÇÃO: DASHBOARD
 // ==========================================================================
 function renderDashboardView() {
+  const stats = appState.stats || {};
   const jobs = appState.jobs;
-  const total = jobs.length;
-  const applied = jobs.filter(j => j.status === 'applied').length;
-  const pending = jobs.filter(j => j.status === 'pending').length;
-  const active = jobs.filter(j => ['screening', 'technical', 'interview'].includes(j.status)).length;
-  const offers = jobs.filter(j => j.status === 'offer').length;
+  const total = stats.total !== undefined ? stats.total : jobs.length;
+  const applied = stats.applied !== undefined ? stats.applied : jobs.filter(j => j.status === 'applied').length;
+  const pending = stats.pending !== undefined ? stats.pending : jobs.filter(j => j.status === 'pending').length;
+  const active = stats.active !== undefined ? stats.active : jobs.filter(j => ['screening', 'technical', 'interview'].includes(j.status)).length;
+  const offers = stats.offers !== undefined ? stats.offers : jobs.filter(j => j.status === 'offer').length;
 
-  const rate = total > 0 ? Math.round(((applied + active + offers) / total) * 100) : 0;
+  const rate = stats.conversionRate !== undefined ? stats.conversionRate : (total > 0 ? Math.round(((applied + active + offers) / total) * 100) : 0);
 
-  // Atualizar contadores
+  // Atualizar contadores a partir de dados reais do banco
   dom.kpiTotal.textContent = total;
   dom.kpiApplied.textContent = applied;
   dom.kpiActive.textContent = active;
@@ -341,11 +361,11 @@ function renderDashboardView() {
 function renderFunnelVisualizer(jobs) {
   const total = jobs.length;
   const stages = [
-    { label: 'Oportunidades Mapeadas', count: total, color: '#6366F1' },
-    { label: 'Candidaturas Enviadas', count: jobs.filter(j => j.status !== 'pending').length, color: '#06B6D4' },
-    { label: 'Triagem / Contato RH', count: jobs.filter(j => ['screening', 'technical', 'interview', 'offer'].includes(j.status)).length, color: '#8B5CF6' },
-    { label: 'Entrevistas / Testes', count: jobs.filter(j => ['technical', 'interview', 'offer'].includes(j.status)).length, color: '#EC4899' },
-    { label: 'Propostas Recebidas', count: jobs.filter(j => j.status === 'offer').length, color: '#10B981' }
+    { label: 'Oportunidades Mapeadas',  count: total, color: '#86EFAC' },
+    { label: 'Candidaturas Enviadas',   count: jobs.filter(j => j.status !== 'pending').length, color: '#22C55E' },
+    { label: 'Triagem / Contato RH',   count: jobs.filter(j => ['screening','technical','interview','offer'].includes(j.status)).length, color: '#16A34A' },
+    { label: 'Entrevistas / Testes',   count: jobs.filter(j => ['technical','interview','offer'].includes(j.status)).length, color: '#34D399' },
+    { label: 'Propostas Recebidas',    count: jobs.filter(j => j.status === 'offer').length, color: '#4ADE80' }
   ];
 
   dom.funnelVisualizer.innerHTML = stages.map(stage => {
@@ -354,10 +374,10 @@ function renderFunnelVisualizer(jobs) {
       <div class="funnel-step">
         <div class="funnel-step-info">
           <span class="funnel-step-name">${stage.label}</span>
-          <span class="funnel-step-meta">${stage.count} vagas (${pct}% do total)</span>
+          <span class="funnel-step-meta">${stage.count} vagas &nbsp;·&nbsp; ${pct}% do total</span>
         </div>
         <div class="funnel-bar-track">
-          <div class="funnel-bar-fill" style="width: ${Math.max(pct, 3)}%; background-color: ${stage.color};"></div>
+          <div class="funnel-bar-fill" style="width:${Math.max(pct, 2)}%; background-color: ${stage.color};"></div>
         </div>
         <div class="funnel-step-stat">${stage.count}</div>
       </div>
@@ -370,15 +390,15 @@ function renderWorkModeChart(jobs) {
   if (!ctx) return;
 
   const counts = {
-    Remoto: jobs.filter(j => j.workMode === 'Remoto').length,
-    Híbrido: jobs.filter(j => j.workMode === 'Híbrido').length,
+    Remoto:     jobs.filter(j => j.workMode === 'Remoto').length,
+    Híbrido:    jobs.filter(j => j.workMode === 'Híbrido').length,
     Presencial: jobs.filter(j => j.workMode === 'Presencial').length,
-    Outros: jobs.filter(j => !['Remoto', 'Híbrido', 'Presencial'].includes(j.workMode)).length
+    Outros:     jobs.filter(j => !['Remoto','Híbrido','Presencial'].includes(j.workMode)).length
   };
 
-  if (appState.charts.workMode) {
-    appState.charts.workMode.destroy();
-  }
+  if (appState.charts.workMode) appState.charts.workMode.destroy();
+
+  const isMobile = window.innerWidth < 640;
 
   appState.charts.workMode = new Chart(ctx, {
     type: 'doughnut',
@@ -386,9 +406,9 @@ function renderWorkModeChart(jobs) {
       labels: ['Remoto', 'Híbrido', 'Presencial', 'Outros'],
       datasets: [{
         data: [counts.Remoto, counts.Híbrido, counts.Presencial, counts.Outros],
-        backgroundColor: ['#10B981', '#06B6D4', '#F59E0B', '#64748B'],
-        borderColor: '#131823',
-        borderWidth: 3
+        backgroundColor: ['#22C55E', '#16A34A', '#14532D', '#27382B'],
+        borderColor: '#0A0F0B',
+        borderWidth: 2
       }]
     },
     options: {
@@ -396,13 +416,8 @@ function renderWorkModeChart(jobs) {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          position: 'right',
-          labels: {
-            color: '#94A3B8',
-            font: { size: 11, family: 'Inter' },
-            boxWidth: 12,
-            padding: 12
-          }
+          position: isMobile ? 'bottom' : 'right',
+          labels: { color: '#9CA3AF', font: { size: 11, family: 'Space Grotesk' }, boxWidth: 10, padding: 10 }
         }
       },
       cutout: '72%'
@@ -414,47 +429,37 @@ function renderStagesBarChart(jobs) {
   const ctx = document.getElementById('chartStagesBar');
   if (!ctx) return;
 
-  const labels = STAGE_DEFINITIONS.map(s => s.label);
-  const data = STAGE_DEFINITIONS.map(s => jobs.filter(j => j.status === s.key).length);
-  const colors = ['#F59E0B', '#6366F1', '#8B5CF6', '#06B6D4', '#EC4899', '#10B981', '#64748B'];
+  const labels = STAGE_DEFINITIONS.map(s => s.label.split(' / ')[0]);
+  const data   = STAGE_DEFINITIONS.map(s => jobs.filter(j => j.status === s.key).length);
+  const colors = ['#86EFAC', '#22C55E', '#16A34A', '#34D399', '#4ADE80', '#22C55E', '#3F4E42'];
 
-  if (appState.charts.stagesBar) {
-    appState.charts.stagesBar.destroy();
-  }
+  if (appState.charts.stagesBar) appState.charts.stagesBar.destroy();
+
+  const isMobile = window.innerWidth < 640;
 
   appState.charts.stagesBar = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: labels,
-      datasets: [{
-        data: data,
-        backgroundColor: colors,
-        borderRadius: 4
-      }]
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderRadius: 3 }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
+      plugins: { legend: { display: false } },
       scales: {
         x: {
-          ticks: {
-            color: '#64748B',
-            font: { size: 10, family: 'Inter' }
+          ticks: { 
+            color: '#6B7280', 
+            font: { size: isMobile ? 9 : 10, family: 'Space Grotesk' },
+            maxRotation: isMobile ? 45 : 0,
+            minRotation: isMobile ? 30 : 0
           },
           grid: { display: false }
         },
         y: {
-          ticks: {
-            color: '#64748B',
-            stepSize: 2,
-            font: { size: 10, family: 'Inter' }
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.04)'
-          }
+          ticks: { color: '#6B7280', stepSize: 2, font: { size: 10, family: 'Space Grotesk' } },
+          grid: { color: 'rgba(34,197,94,0.06)' }
         }
       }
     }
@@ -462,23 +467,40 @@ function renderStagesBarChart(jobs) {
 }
 
 function renderRecentActivities(jobs) {
-  const recent = [...jobs].slice(0, 5);
-  if (recent.length === 0) {
-    dom.recentActivitiesList.innerHTML = `<div style="padding: 16px; color: var(--text-muted); font-size: 0.8125rem;">Nenhuma atividade recente registrada.</div>`;
+  // Usa atividades reais do banco quando disponíveis
+  const activities = appState.activities || [];
+  if (activities.length === 0) {
+    // Fallback: últimas vagas adicionadas
+    const recent = [...jobs].slice(0, 6);
+    if (recent.length === 0) {
+      dom.recentActivitiesList.innerHTML = `<div style="padding:16px;color:var(--text-muted);font-size:0.8125rem">🥝 Nenhuma atividade registrada ainda.</div>`;
+      return;
+    }
+    dom.recentActivitiesList.innerHTML = recent.map(job => {
+      const stage = STAGE_DEFINITIONS.find(s => s.key === job.status) || STAGE_DEFINITIONS[0];
+      return `<div class="activity-item" onclick="openOpportunityDrawer('${job.id}')" style="cursor:pointer">
+        <div class="activity-dot" style="background-color:${stage.color}"></div>
+        <div class="activity-body">
+          <span class="activity-title">${escapeHtml(job.title)}</span>
+          <span class="activity-meta">${escapeHtml(job.company)} · ${stage.label}</span>
+        </div></div>`;
+    }).join('');
     return;
   }
 
-  dom.recentActivitiesList.innerHTML = recent.map(job => {
-    const stage = STAGE_DEFINITIONS.find(s => s.key === job.status) || STAGE_DEFINITIONS[0];
-    return `
-      <div class="activity-item" onclick="openOpportunityDrawer('${job.id}')" style="cursor: pointer;">
-        <div class="activity-dot" style="background-color: ${stage.color};"></div>
-        <div class="activity-body">
-          <span class="activity-title">${escapeHtml(job.title)}</span>
-          <span class="activity-meta">${escapeHtml(job.company)} • ${stage.label}</span>
-        </div>
-      </div>
-    `;
+  const EVENT_ICONS = { criacao: '🌱', mudanca_etapa: '🔄', candidatura: '🚀', anotacao: '📝', default: '⚡' };
+  dom.recentActivitiesList.innerHTML = activities.slice(0, 8).map(act => {
+    const job = act.job_title ? appState.jobs.find(j => j.id === act.opportunity_id) : null;
+    const stage = job ? (STAGE_DEFINITIONS.find(s => s.key === job.status) || STAGE_DEFINITIONS[0]) : null;
+    const dotColor = stage ? stage.color : '#4ADE80';
+    const icon = EVENT_ICONS[act.event_type] || EVENT_ICONS.default;
+    const dateStr = act.created_at ? new Date(act.created_at).toLocaleDateString('pt-BR') : '';
+    return `<div class="activity-item" ${job ? `onclick="openOpportunityDrawer('${job.id}')" style="cursor:pointer"` : ''}>
+      <div class="activity-dot" style="background-color:${dotColor}"></div>
+      <div class="activity-body">
+        <span class="activity-title">${icon} ${escapeHtml(act.description || act.job_title || 'Atividade')}</span>
+        <span class="activity-meta">${escapeHtml(act.company_name || '')} · ${dateStr}</span>
+      </div></div>`;
   }).join('');
 }
 
@@ -538,7 +560,7 @@ function renderOpportunitiesTable() {
           <span class="badge-subtle" style="margin-top: 2px;">${escapeHtml(job.workMode || 'Geral')}</span>
         </td>
         <td>
-          <span class="status-pill" style="background-color: ${stage.color}15; color: ${stage.color}; border-color: ${stage.color}35;">
+          <span class="status-pill status-${stage.key}">
             ${stage.label}
           </span>
         </td>
@@ -570,6 +592,33 @@ function renderKanbanPipeline() {
   const jobs = getFilteredOpportunities();
   dom.kanbanContainer.innerHTML = '';
 
+  // Renderiza pills de navegação rápida por estágios no mobile/tablet
+  if (dom.pipelineStagePills) {
+    dom.pipelineStagePills.innerHTML = STAGE_DEFINITIONS.map((stage, idx) => {
+      const stageJobs = jobs.filter(j => j.status === stage.key);
+      const isFirst = idx === 0;
+      return `
+        <button class="pipeline-pill-btn ${isFirst ? 'active' : ''}" data-stage="${stage.key}">
+          <span class="pipeline-pill-indicator" style="background-color: ${stage.color};"></span>
+          <span>${stage.label.split(' / ')[0]}</span>
+          <span class="pipeline-pill-count">${stageJobs.length}</span>
+        </button>
+      `;
+    }).join('');
+
+    dom.pipelineStagePills.querySelectorAll('.pipeline-pill-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        dom.pipelineStagePills.querySelectorAll('.pipeline-pill-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const stageKey = btn.dataset.stage;
+        const col = dom.kanbanContainer.querySelector(`.kanban-column[data-stage="${stageKey}"]`);
+        if (col) {
+          col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        }
+      });
+    });
+  }
+
   STAGE_DEFINITIONS.forEach(stage => {
     const stageJobs = jobs.filter(j => j.status === stage.key);
 
@@ -588,7 +637,8 @@ function renderKanbanPipeline() {
       <div class="kanban-cards-track" data-stage="${stage.key}">
         ${stageJobs.length === 0 ? `
           <div class="column-empty-state">
-            <span>Nenhuma vaga nesta etapa</span>
+            <img src="/assets/icon.png" class="column-empty-mascot" alt="Kiwi Bot">
+            <span>Nenhuma vaga nesta etapa — o Kiwi está procurando!</span>
           </div>
         ` : ''}
       </div>
@@ -601,7 +651,7 @@ function renderKanbanPipeline() {
       track.appendChild(card);
     });
 
-    // Drag and drop events
+    // Drag and drop events com update otimista e rollback
     track.addEventListener('dragover', e => {
       e.preventDefault();
       track.classList.add('drag-over');
@@ -615,12 +665,25 @@ function renderKanbanPipeline() {
       e.preventDefault();
       track.classList.remove('drag-over');
       const jobId = e.dataTransfer.getData('text/plain');
-      if (jobId) {
-        const job = appState.jobs.find(j => j.id === jobId);
-        if (job && job.status !== stage.key) {
-          await updateOpportunity(jobId, { status: stage.key });
-          showToast(`Vaga movida para "${stage.label}"`, 'info');
-        }
+      if (!jobId) return;
+
+      const job = appState.jobs.find(j => j.id === jobId);
+      if (!job || job.status === stage.key) return;
+
+      const prevStage = job.status;
+      // 1. Update Otimista na UI
+      job.status = stage.key;
+      renderActiveView();
+
+      // 2. Persistência no Banco de Dados
+      const ok = await updateOpportunity(jobId, { status: stage.key });
+      if (ok) {
+        showToast(`Vaga movida para "${stage.label}"`, 'info');
+      } else {
+        // Rollback automático em caso de erro
+        job.status = prevStage;
+        renderActiveView();
+        showToast('Falha ao persistir no banco. Revertendo.', 'error');
       }
     });
 
@@ -749,8 +812,8 @@ function renderReportsView() {
         <td>${pct}%</td>
         <td>${retention}</td>
         <td>
-          <span class="status-pill" style="background-color: ${stage.color}15; color: ${stage.color};">
-            Ativo
+          <span class="status-pill status-${stage.key}">
+            ${count > 0 ? 'Ativo' : 'Vazio'}
           </span>
         </td>
       </tr>
@@ -764,22 +827,20 @@ function renderReportsView() {
 
   dom.insightsList.innerHTML = `
     <div class="insight-item">
-      <div style="margin-top: 2px; color: var(--color-primary);">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-      </div>
-      <div><strong>Taxa de Conversão para Entrevistas:</strong> Você tem ${interviewRate}% de avanço das candidaturas submetidas para entrevistas ou testes.</div>
+      <div style="margin-top:2px;color:var(--kiwi-primary)">🎯</div>
+      <div><strong>Taxa de Conversão para Entrevistas:</strong> ${interviewRate}% de avanço das candidaturas para entrevistas/testes.</div>
     </div>
     <div class="insight-item">
-      <div style="margin-top: 2px; color: var(--status-pending);">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-      </div>
-      <div><strong>Oportunidades Pendentes:</strong> Há ${jobs.filter(j => j.status === 'pending').length} vagas pendentes com links externos prontas para aplicação manual.</div>
+      <div style="margin-top:2px;color:var(--status-pending)">📌</div>
+      <div><strong>Oportunidades Pendentes:</strong> ${jobs.filter(j => j.status === 'pending').length} vagas com links externos prontas para aplicação manual.</div>
     </div>
     <div class="insight-item">
-      <div style="margin-top: 2px; color: var(--status-offer);">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="7" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
-      </div>
-      <div><strong>Empresas Mapeadas:</strong> Você tem contato com ${new Set(jobs.map(j => j.company)).size} empresas diferentes registradas no sistema.</div>
+      <div style="margin-top:2px;color:var(--status-offer)">🏢</div>
+      <div><strong>Empresas Mapeadas:</strong> ${new Set(jobs.map(j => j.company)).size} empresas diferentes no sistema.</div>
+    </div>
+    <div class="insight-item">
+      <div style="margin-top:2px;color:var(--kiwi-primary)">🥝</div>
+      <div><strong>Dica do Kiwi:</strong> Vagas remotas representam ${total > 0 ? Math.round((jobs.filter(j=>j.workMode==='Remoto').length/total)*100) : 0}% das suas oportunidades mapeadas.</div>
     </div>
   `;
 
@@ -798,13 +859,12 @@ function renderReportsView() {
       <div class="location-item">
         <div class="location-item-header">
           <span>${escapeHtml(loc)}</span>
-          <span style="color: var(--text-muted);">${count} (${pct}%)</span>
+          <span style="color:var(--text-muted)">${count} (${pct}%)</span>
         </div>
-        <div class="funnel-bar-track">
-          <div class="funnel-bar-fill" style="width: ${pct}%; background-color: var(--color-primary);"></div>
+        <div class="progress-track">
+          <div class="progress-fill" style="width:${pct}%"></div>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
@@ -823,9 +883,10 @@ function openOpportunityDrawer(jobId) {
 
   const stage = STAGE_DEFINITIONS.find(s => s.key === job.status) || STAGE_DEFINITIONS[0];
   dom.drawerStatusPill.textContent = stage.label;
-  dom.drawerStatusPill.style.backgroundColor = `${stage.color}15`;
-  dom.drawerStatusPill.style.color = stage.color;
-  dom.drawerStatusPill.style.borderColor = `${stage.color}30`;
+  dom.drawerStatusPill.className = `status-pill status-${stage.key}`;
+  dom.drawerStatusPill.style.backgroundColor = '';
+  dom.drawerStatusPill.style.color = '';
+  dom.drawerStatusPill.style.borderColor = '';
 
   // Inputs
   dom.drawerInputStatus.value = job.status;
@@ -1133,10 +1194,28 @@ function setupEventListeners() {
     });
   });
 
+  // Navegação na Barra Inferior Mobile
+  if (dom.mobileNavBtns) {
+    dom.mobileNavBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        switchView(btn.dataset.view);
+      });
+    });
+  }
+
   // Toggle Sidebar no Mobile
+  // Toggle Sidebar Mobile com Backdrop
   dom.btnToggleSidebar.addEventListener('click', () => {
-    dom.sidebar.classList.toggle('open');
+    const isOpen = dom.sidebar.classList.toggle('open');
+    if (dom.sidebarBackdrop) dom.sidebarBackdrop.classList.toggle('active', isOpen);
   });
+
+  if (dom.sidebarBackdrop) {
+    dom.sidebarBackdrop.addEventListener('click', () => {
+      dom.sidebar.classList.remove('open');
+      dom.sidebarBackdrop.classList.remove('active');
+    });
+  }
 
   // Sincronização
   dom.btnSyncCsv.addEventListener('click', triggerCsvSync);

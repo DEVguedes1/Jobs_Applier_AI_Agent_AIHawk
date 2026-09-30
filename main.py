@@ -97,6 +97,66 @@ def salvar_csv_seguro(nome_arquivo, dados):
         print(f"❌ ERRO: Feche o arquivo {nome_arquivo}!")
     except Exception: pass
 
+def salvar_no_banco_sqlite(vagas):
+    if not vagas: return
+    db_path = os.path.join("dashboard", "kiwibot.db")
+    if not os.path.exists(db_path):
+        return
+    try:
+        import sqlite3
+        import secrets as pysecrets
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        now_iso = datetime.now().isoformat()
+        
+        for vaga in vagas:
+            data_hora, cargo, empresa, local, status_msg, url = vaga[0], vaga[1], vaga[2], vaga[3], vaga[4], vaga[5]
+            is_sucesso = "Sucesso" in status_msg or "Enviada" in status_msg
+            stage = "applied" if is_sucesso else "pending"
+            work_mode = "Remoto" if "remot" in (cargo + " " + local).lower() else "Presencial"
+            
+            cur.execute("SELECT id FROM companies WHERE LOWER(name) = LOWER(?)", (empresa,))
+            c_row = cur.fetchone()
+            if c_row:
+                cid = c_row[0]
+            else:
+                cid = pysecrets.token_hex(6)
+                cur.execute("INSERT INTO companies (id, name, website, linkedin, created_at, updated_at) VALUES (?, ?, '', '', ?, ?)",
+                            (cid, empresa, now_iso, now_iso))
+            
+            opp_id = None
+            if url:
+                cur.execute("SELECT id FROM opportunities WHERE url = ?", (url,))
+                opp_row = cur.fetchone()
+                if opp_row:
+                    opp_id = opp_row[0]
+                    cur.execute("""
+                        UPDATE opportunities
+                        SET stage = ?, original_status = ?, date_applied = COALESCE(date_applied, ?), updated_at = ?
+                        WHERE id = ?
+                    """, (stage, status_msg, data_hora if is_sucesso else None, now_iso, opp_id))
+            
+            if not opp_id:
+                opp_id = "bot_" + pysecrets.token_hex(6)
+                cur.execute("""
+                    INSERT INTO opportunities
+                    (id, title, company_id, company_name, location, work_mode, stage, url, date_added, date_applied, source, original_status, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (opp_id, cargo, cid, empresa, local, work_mode, stage, url, data_hora, data_hora if is_sucesso else None, "LinkedIn Bot (Easy Apply)", status_msg, "active", now_iso, now_iso))
+            
+            act_id = pysecrets.token_hex(8)
+            act_desc = f"Candidatura enviada via robô: {cargo} @ {empresa}" if is_sucesso else f"Vaga mapeada pelo robô: {cargo} @ {empresa}"
+            cur.execute("""
+                INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (act_id, opp_id, "candidatura_enviada" if is_sucesso else "criacao", "", stage, act_desc, now_iso))
+            
+        conn.commit()
+        conn.close()
+        print(f"🗄️ {len(vagas)} vaga(s) sincronizada(s) no banco SQLite (kiwibot.db)!")
+    except Exception as e:
+        print(f"⚠️ Aviso ao salvar no banco SQLite: {e}")
+
 def processar_e_salvar_relatorios(secrets):
     print("\n💾 SALVANDO ARQUIVOS...")
     lista_sucesso = []
@@ -111,6 +171,7 @@ def processar_e_salvar_relatorios(secrets):
             
     if lista_sucesso: salvar_csv_seguro("vagas_sucesso.csv", lista_sucesso)
     if lista_pendentes: salvar_csv_seguro("vagas_pendentes.csv", lista_pendentes)
+    salvar_no_banco_sqlite(historico_vagas)
     
     enviar_relatorio_email(secrets)
 
