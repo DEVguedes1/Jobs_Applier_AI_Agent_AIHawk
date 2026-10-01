@@ -20,7 +20,14 @@ const {
   getRecentActivities,
   upsertCompany,
   mapJob,
-  syncBackToCsv
+  syncBackToCsv,
+  createUser,
+  authenticateUser,
+  createSession,
+  getUserBySession,
+  deleteSession,
+  getUserCount,
+  updateUserProfile
 } = require('./db');
 
 // Ensure tables exist and initial migration is performed
@@ -80,7 +87,8 @@ const MIME_TYPES = {
 };
 
 function json(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(data));
 }
 
@@ -93,6 +101,46 @@ function logActivity(opportunityId, eventType, prevValue, newValue, description)
   `).run(actId, opportunityId, eventType, prevValue || '', newValue || '', description || '', now);
 }
 
+function getSessionToken(req) {
+  const cookieHeader = req.headers['cookie'];
+  if (cookieHeader) {
+    const match = cookieHeader.match(/kiwi_session=([^;]+)/);
+    if (match) return match[1].trim();
+  }
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7).trim();
+  }
+  return null;
+}
+
+function getAuthUser(req) {
+  const token = getSessionToken(req);
+  if (!token) return null;
+  return getUserBySession(token);
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', c => {
+      body += c;
+      if (body.length > 2e6) {
+        req.socket.destroy();
+        reject(new Error('Payload muito grande'));
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(new Error('JSON malformado'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 // ─── Servidor HTTP ────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
@@ -100,11 +148,109 @@ const server = http.createServer((req, res) => {
   const query     = parsedUrl.query;
   const method    = req.method;
 
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  // ── AUTH: GET /api/auth/me ───────────────────────────────────────────────
+  if (pathname === '/api/auth/me' && method === 'GET') {
+    const user = getAuthUser(req);
+    const userCount = getUserCount();
+    if (user) {
+      json(res, 200, { success: true, authenticated: true, user, userCount });
+    } else {
+      json(res, 200, { success: true, authenticated: false, user: null, userCount });
+    }
+    return;
+  }
+
+  // ── AUTH: POST /api/auth/register ────────────────────────────────────────
+  if (pathname === '/api/auth/register' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      try {
+        const { name, email, password, avatarUrl } = data;
+        if (!name || !name.trim()) {
+          json(res, 400, { success: false, error: 'O nome é obrigatório.' });
+          return;
+        }
+        if (!email || !email.trim()) {
+          json(res, 400, { success: false, error: 'O e-mail é obrigatório.' });
+          return;
+        }
+        if (!password || password.length < 6) {
+          json(res, 400, { success: false, error: 'A senha deve conter no mínimo 6 caracteres.' });
+          return;
+        }
+        const user = createUser({ name, email, password, avatarUrl });
+        const session = createSession(user.id, 30);
+        res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
+        logActivity(null, 'usuario_criado', '', user.email, `Novo usuário registrado: ${user.name} (${user.email})`);
+        json(res, 201, { success: true, user, token: session.token, message: 'Conta criada com sucesso!' });
+      } catch (err) {
+        json(res, 400, { success: false, error: err.message });
+      }
+    }).catch(err => {
+      json(res, 400, { success: false, error: err.message || 'Requisição inválida.' });
+    });
+    return;
+  }
+
+  // ── AUTH: POST /api/auth/login ───────────────────────────────────────────
+  if (pathname === '/api/auth/login' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      const { email, password, rememberMe } = data;
+      if (!email || !password) {
+        json(res, 400, { success: false, error: 'E-mail e senha são obrigatórios.' });
+        return;
+      }
+      const user = authenticateUser(email, password);
+      if (!user) {
+        json(res, 401, { success: false, error: 'E-mail ou senha incorretos.' });
+        return;
+      }
+      const days = rememberMe ? 60 : 7;
+      const session = createSession(user.id, days);
+      res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${days * 24 * 60 * 60}`);
+      json(res, 200, { success: true, user, token: session.token, message: `Bem-vindo de volta, ${user.name}!` });
+    }).catch(err => {
+      json(res, 400, { success: false, error: 'Requisição inválida.' });
+    });
+    return;
+  }
+
+  // ── AUTH: POST /api/auth/logout ──────────────────────────────────────────
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    const token = getSessionToken(req);
+    if (token) {
+      deleteSession(token);
+    }
+    res.setHeader('Set-Cookie', 'kiwi_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+    json(res, 200, { success: true, message: 'Sessão encerrada com sucesso.' });
+    return;
+  }
+
+  // ── AUTH: PUT /api/auth/profile ──────────────────────────────────────────
+  if (pathname === '/api/auth/profile' && method === 'PUT') {
+    const user = getAuthUser(req);
+    if (!user) {
+      json(res, 401, { success: false, error: 'Sessão expirada. Faça login novamente.' });
+      return;
+    }
+    readJsonBody(req).then(data => {
+      try {
+        const updated = updateUserProfile(user.id, data);
+        json(res, 200, { success: true, user: updated, message: 'Perfil atualizado com sucesso!' });
+      } catch (err) {
+        json(res, 400, { success: false, error: err.message });
+      }
+    }).catch(err => {
+      json(res, 400, { success: false, error: 'Requisição inválida.' });
+    });
+    return;
+  }
 
   // ── GET /api/jobs ─────────────────────────────────────────────────────────
   if (pathname === '/api/jobs' && method === 'GET') {

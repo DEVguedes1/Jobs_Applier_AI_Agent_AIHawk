@@ -77,10 +77,33 @@ function initDb() {
       log_output TEXT DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      role TEXT DEFAULT 'admin',
+      avatar_url TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_opportunities_stage ON opportunities(stage);
     CREATE INDEX IF NOT EXISTS idx_opportunities_company_id ON opportunities(company_id);
     CREATE INDEX IF NOT EXISTS idx_activities_opportunity_id ON activities(opportunity_id);
     CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
   `);
 }
 
@@ -508,6 +531,204 @@ function getRecentActivities(limit = 20) {
   }));
 }
 
+/**
+ * ─── Authentication & User Management ─────────────────────────────────────────
+ */
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+}
+
+function verifyPassword(password, hash, salt) {
+  try {
+    const testHash = hashPassword(password, salt);
+    const bufA = Buffer.from(hash, 'hex');
+    const bufB = Buffer.from(testHash, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch (e) {
+    return false;
+  }
+}
+
+function createUser({ name, email, password, avatarUrl = '', role = 'admin' }) {
+  initDb();
+  if (!name || !name.trim()) throw new Error('Nome é obrigatório.');
+  if (!email || !email.trim()) throw new Error('E-mail é obrigatório.');
+  const cleanEmail = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    throw new Error('Formato de e-mail inválido.');
+  }
+  if (!password || password.length < 6) {
+    throw new Error('A senha deve ter no mínimo 6 caracteres.');
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = ?').get(cleanEmail);
+  if (existing) {
+    throw new Error('Este e-mail já está cadastrado.');
+  }
+
+  const id = 'usr_' + crypto.randomBytes(8).toString('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(password, salt);
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO users (id, name, email, password_hash, salt, role, avatar_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name.trim(), cleanEmail, hash, salt, role, avatarUrl ? avatarUrl.trim() : '', now, now);
+
+  return {
+    id,
+    name: name.trim(),
+    email: cleanEmail,
+    role,
+    avatarUrl: avatarUrl ? avatarUrl.trim() : '',
+    createdAt: now
+  };
+}
+
+function authenticateUser(email, password) {
+  initDb();
+  if (!email || !password) return null;
+  const cleanEmail = email.trim().toLowerCase();
+  const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(cleanEmail);
+  if (!user) return null;
+
+  const valid = verifyPassword(password, user.password_hash, user.salt);
+  if (!valid) return null;
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatarUrl: user.avatar_url || '',
+    createdAt: user.created_at
+  };
+}
+
+function createSession(userId, daysValid = 30) {
+  initDb();
+  const token = crypto.randomBytes(32).toString('hex');
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + daysValid * 24 * 60 * 60 * 1000).toISOString();
+
+  db.prepare(`
+    INSERT INTO sessions (token, user_id, created_at, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).run(token, userId, now.toISOString(), expiresAt);
+
+  return { token, expiresAt };
+}
+
+function getUserBySession(token) {
+  initDb();
+  if (!token) return null;
+  const now = new Date().toISOString();
+  const row = db.prepare(`
+    SELECT u.id, u.name, u.email, u.role, u.avatar_url, u.created_at, s.expires_at
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.expires_at > ?
+  `).get(token, now);
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    avatarUrl: row.avatar_url || '',
+    createdAt: row.created_at,
+    sessionExpiresAt: row.expires_at
+  };
+}
+
+function deleteSession(token) {
+  initDb();
+  if (!token) return;
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+}
+
+function getUserCount() {
+  initDb();
+  const row = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  return row ? row.count : 0;
+}
+
+function updateUserProfile(userId, { name, email, avatarUrl, currentPassword, newPassword }) {
+  initDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) throw new Error('Usuário não encontrado.');
+
+  const sets = [];
+  const vals = [];
+
+  if (name && name.trim()) {
+    sets.push('name = ?');
+    vals.push(name.trim());
+  }
+
+  if (email && email.trim()) {
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      throw new Error('Formato de e-mail inválido.');
+    }
+    if (cleanEmail !== user.email.toLowerCase()) {
+      const existing = db.prepare('SELECT id FROM users WHERE LOWER(email) = ? AND id != ?').get(cleanEmail, userId);
+      if (existing) throw new Error('Este e-mail já está sendo utilizado.');
+      sets.push('email = ?');
+      vals.push(cleanEmail);
+    }
+  }
+
+  if (avatarUrl !== undefined) {
+    sets.push('avatar_url = ?');
+    vals.push(avatarUrl.trim());
+  }
+
+  if (newPassword) {
+    if (!currentPassword) {
+      throw new Error('A senha atual é necessária para definir uma nova senha.');
+    }
+    const valid = verifyPassword(currentPassword, user.password_hash, user.salt);
+    if (!valid) {
+      throw new Error('Senha atual incorreta.');
+    }
+    if (newPassword.length < 6) {
+      throw new Error('A nova senha deve ter no mínimo 6 caracteres.');
+    }
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = hashPassword(newPassword, newSalt);
+    sets.push('password_hash = ?');
+    vals.push(newHash);
+    sets.push('salt = ?');
+    vals.push(newSalt);
+  }
+
+  if (sets.length > 0) {
+    const nowIso = new Date().toISOString();
+    sets.push('updated_at = ?');
+    vals.push(nowIso);
+    vals.push(userId);
+
+    db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  const updated = db.prepare('SELECT id, name, email, role, avatar_url, created_at FROM users WHERE id = ?').get(userId);
+  return {
+    id: updated.id,
+    name: updated.name,
+    email: updated.email,
+    role: updated.role,
+    avatarUrl: updated.avatar_url || '',
+    createdAt: updated.created_at
+  };
+}
+
 module.exports = {
   db,
   initDb,
@@ -518,5 +739,14 @@ module.exports = {
   getRecentActivities,
   upsertCompany,
   mapJob,
-  syncBackToCsv
+  syncBackToCsv,
+  // Auth exports
+  createUser,
+  authenticateUser,
+  createSession,
+  getUserBySession,
+  deleteSession,
+  getUserCount,
+  updateUserProfile
 };
+

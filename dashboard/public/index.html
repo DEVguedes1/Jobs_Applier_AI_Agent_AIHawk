@@ -102,14 +102,22 @@
           </div>
         </div>
 
-        <div class="user-profile-pill">
-          <div class="user-avatar-wrap">
-            <img src="/assets/icon.png" alt="Kiwi Bot Mascot" class="user-avatar-img">
+        <div class="user-profile-pill" id="sidebarUserProfilePill">
+          <div class="user-avatar-wrap" id="sidebarAvatarWrap">
+            <span class="user-avatar-text" id="sidebarAvatarText">KB</span>
+            <img src="/assets/icon.png" alt="Kiwi Bot Mascot" class="user-avatar-img" id="sidebarAvatarImg">
           </div>
-          <div class="user-details">
-            <span class="user-name">Candidato</span>
-            <span class="user-status">🥝 katchau...</span>
+          <div class="user-details" id="sidebarUserDetails" title="Clique para editar seu perfil">
+            <span class="user-name" id="sidebarUserName">Carregando...</span>
+            <span class="user-status" id="sidebarUserStatus">🥝 Conectado</span>
           </div>
+          <button class="btn-sidebar-logout" id="btnSidebarLogout" title="Sair da Conta" aria-label="Sair da Conta">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
         </div>
     </aside>
 
@@ -179,6 +187,43 @@
             </svg>
             <span class="btn-text">Nova Vaga</span>
           </button>
+
+          <!-- Perfil do Usuário no Topbar -->
+          <div class="topbar-user-menu-wrap" id="topbarUserMenuWrap">
+            <button class="topbar-user-btn" id="btnTopbarUserMenu" aria-label="Menu do Usuário" title="Meu Perfil & Opções">
+              <div class="topbar-user-avatar" id="topbarUserAvatar">
+                <span id="topbarUserInitials">KB</span>
+              </div>
+              <span class="topbar-user-name" id="topbarUserName">Usuário</span>
+              <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+
+            <!-- Dropdown Menu -->
+            <div class="user-dropdown-card hidden" id="userDropdownCard">
+              <div class="user-dropdown-header">
+                <div class="user-dropdown-name" id="dropdownUserName">Usuário</div>
+                <div class="user-dropdown-email" id="dropdownUserEmail">email@exemplo.com</div>
+              </div>
+              <div class="user-dropdown-divider"></div>
+              <button type="button" class="user-dropdown-item" id="btnOpenProfileModal">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                  <circle cx="12" cy="7" r="4"/>
+                </svg>
+                <span>Meu Perfil</span>
+              </button>
+              <button type="button" class="user-dropdown-item danger" id="btnDropdownLogout">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                <span>Sair da Conta</span>
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -704,6 +749,334 @@
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
             <span>Iniciar Busca</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MODAL DE AUTENTICAÇÃO: LOGIN & CADASTRO
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop auth-backdrop hidden" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+    <div class="modal-dialog auth-dialog">
+      <!-- Cabeçalho da Marca -->
+      <div class="auth-header">
+        <div class="auth-brand-badge">
+          <div class="auth-mascot-glow">
+            <img src="/assets/icon.png" alt="Kiwi Bot" class="auth-mascot-img">
+          </div>
+          <div class="auth-brand-info">
+            <h1 class="auth-brand-title">Kiwi Bot</h1>
+            <span class="auth-brand-tagline">Automação Inteligente & ATS de Carreira</span>
+          </div>
+        </div>
+
+        <!-- Seletor de Abas (Login / Cadastro) -->
+        <div class="auth-tabs-nav" role="tablist">
+          <button type="button" class="auth-tab-pill active" id="tabBtnLogin" role="tab" aria-selected="true" data-tab="login">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+              <polyline points="10 17 15 12 10 7"/>
+              <line x1="15" y1="12" x2="3" y2="12"/>
+            </svg>
+            <span>Entrar</span>
+          </button>
+          <button type="button" class="auth-tab-pill" id="tabBtnRegister" role="tab" aria-selected="false" data-tab="register">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+            <span>Criar Conta</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="auth-body">
+        <!-- ── ABA: ENTRAR (LOGIN) ── -->
+        <div class="auth-pane active" id="paneLogin" role="tabpanel">
+          <div class="auth-pane-intro">
+            <h2 class="auth-pane-title" id="authDialogTitle">Acesse sua conta</h2>
+            <p class="auth-pane-desc">Informe suas credenciais para visualizar seu painel e executar buscas.</p>
+          </div>
+
+          <!-- Mensagem de Alerta / Erro Login -->
+          <div class="auth-alert hidden" id="loginAlertBox" role="alert">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span class="auth-alert-text" id="loginAlertText"></span>
+          </div>
+
+          <form id="formAuthLogin" novalidate>
+            <div class="form-group">
+              <label for="loginEmail" class="form-label">E-mail de acesso</label>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect width="20" height="16" x="2" y="4" rx="2"/>
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                  </svg>
+                </span>
+                <input type="email" id="loginEmail" class="form-control auth-input" placeholder="seu.email@exemplo.com" required autocomplete="username">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <div class="label-with-action">
+                <label for="loginPassword" class="form-label">Sua senha</label>
+              </div>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </span>
+                <input type="password" id="loginPassword" class="form-control auth-input" placeholder="Digite sua senha" required autocomplete="current-password">
+                <button type="button" class="btn-input-eye" id="btnToggleLoginPassword" aria-label="Alternar visibilidade da senha" tabindex="-1">
+                  <svg class="icon-eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  <svg class="icon-eye-closed hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="m15 18-.722-3.25"/>
+                    <path d="M2 8a10.645 10.645 0 0 0 20 0"/>
+                    <path d="m20 15-1.726-2.05"/>
+                    <path d="m4 15 1.726-2.05"/>
+                    <path d="m9 18 .722-3.25"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="auth-options-row">
+              <label class="auth-remember-label">
+                <input type="checkbox" id="loginRememberMe" checked class="custom-check-input">
+                <span>Manter-me conectado</span>
+              </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-auth-action" id="btnLoginSubmit">
+              <span class="btn-text">Entrar na Plataforma</span>
+              <svg class="btn-icon-right" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+                <polyline points="12 5 19 12 12 19"/>
+              </svg>
+              <div class="auth-spinner hidden" id="loginSpinner"></div>
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt">
+            <span>Ainda não possui uma conta?</span>
+            <button type="button" class="btn-text-link" id="linkGoToRegister">Cadastre-se grátis</button>
+          </div>
+        </div>
+
+        <!-- ── ABA: CRIAR CONTA (CADASTRO) ── -->
+        <div class="auth-pane" id="paneRegister" role="tabpanel" style="display:none">
+          <div class="auth-pane-intro">
+            <h2 class="auth-pane-title">Crie sua conta</h2>
+            <p class="auth-pane-desc">Comece a gerenciar suas vagas e automatizar candidaturas no LinkedIn.</p>
+          </div>
+
+          <!-- Mensagem de Alerta / Erro Cadastro -->
+          <div class="auth-alert hidden" id="registerAlertBox" role="alert">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span class="auth-alert-text" id="registerAlertText"></span>
+          </div>
+
+          <form id="formAuthRegister" novalidate>
+            <div class="form-group">
+              <label for="registerName" class="form-label">Nome Completo</label>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </span>
+                <input type="text" id="registerName" class="form-control auth-input" placeholder="Ex: Roberto Carlos" required autocomplete="name">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="registerEmail" class="form-label">E-mail Profissional</label>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect width="20" height="16" x="2" y="4" rx="2"/>
+                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+                  </svg>
+                </span>
+                <input type="email" id="registerEmail" class="form-control auth-input" placeholder="seu.email@exemplo.com" required autocomplete="email">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="registerPassword" class="form-label">Criar Senha Segura</label>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </span>
+                <input type="password" id="registerPassword" class="form-control auth-input" placeholder="Mínimo de 6 caracteres" required minlength="6" autocomplete="new-password">
+                <button type="button" class="btn-input-eye" id="btnToggleRegisterPassword" aria-label="Alternar visibilidade da senha" tabindex="-1">
+                  <svg class="icon-eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  <svg class="icon-eye-closed hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="m15 18-.722-3.25"/>
+                    <path d="M2 8a10.645 10.645 0 0 0 20 0"/>
+                    <path d="m20 15-1.726-2.05"/>
+                    <path d="m4 15 1.726-2.05"/>
+                    <path d="m9 18 .722-3.25"/>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Indicador de força de senha -->
+              <div class="password-meter-wrap">
+                <div class="password-meter-bars">
+                  <span class="meter-bar" id="meterBar1"></span>
+                  <span class="meter-bar" id="meterBar2"></span>
+                  <span class="meter-bar" id="meterBar3"></span>
+                </div>
+                <div class="meter-text" id="meterText">Mínimo de 6 caracteres</div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="registerPasswordConfirm" class="form-label">Confirmar Senha</label>
+              <div class="auth-input-wrapper">
+                <span class="auth-input-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                </span>
+                <input type="password" id="registerPasswordConfirm" class="form-control auth-input" placeholder="Repita a senha digitada" required minlength="6" autocomplete="new-password">
+              </div>
+              <div class="password-match-hint hidden" id="passwordMatchHint"></div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-auth-action" id="btnRegisterSubmit">
+              <span class="btn-text">Criar Conta Grátis</span>
+              <svg class="btn-icon-right" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <line x1="19" y1="8" x2="19" y2="14"/>
+                <line x1="22" y1="11" x2="16" y2="11"/>
+              </svg>
+              <div class="auth-spinner hidden" id="registerSpinner"></div>
+            </button>
+          </form>
+
+          <div class="auth-footer-prompt">
+            <span>Já possui cadastro?</span>
+            <button type="button" class="btn-text-link" id="linkGoToLogin">Acessar minha conta</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MODAL: GERENCIAMENTO DE PERFIL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop hidden" id="profileModal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+    <div class="modal-dialog profile-dialog">
+      <div class="modal-dialog-header">
+        <div>
+          <h3 id="profileModalTitle">Meu Perfil</h3>
+          <p class="modal-sub">Gerencie seus dados e altere sua senha de acesso</p>
+        </div>
+        <button type="button" class="modal-close-icon" id="btnCloseProfileModal" aria-label="Fechar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-dialog-body">
+        <div class="profile-card-header">
+          <div class="profile-avatar-circle" id="profileModalAvatar">KB</div>
+          <div class="profile-info-text">
+            <div class="profile-display-name" id="profileDisplayName">Carregando...</div>
+            <div class="profile-display-email" id="profileDisplayEmail">email@exemplo.com</div>
+            <span class="profile-badge-role">Administrador</span>
+          </div>
+        </div>
+
+        <div class="auth-alert hidden" id="profileAlertBox" role="alert">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span class="auth-alert-text" id="profileAlertText"></span>
+        </div>
+
+        <form id="formEditProfile">
+          <div class="form-group">
+            <label for="profileInputName" class="form-label">Nome Completo</label>
+            <input type="text" id="profileInputName" class="form-control" required>
+          </div>
+
+          <div class="form-group">
+            <label for="profileInputEmail" class="form-label">E-mail</label>
+            <input type="email" id="profileInputEmail" class="form-control" required>
+          </div>
+
+          <div class="profile-section-divider">
+            <span>Alterar Senha (opcional)</span>
+          </div>
+
+          <div class="form-group">
+            <label for="profileCurrentPassword" class="form-label">Senha Atual</label>
+            <input type="password" id="profileCurrentPassword" class="form-control" placeholder="Necessário apenas para alterar a senha">
+          </div>
+
+          <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="form-group">
+              <label for="profileNewPassword" class="form-label">Nova Senha</label>
+              <input type="password" id="profileNewPassword" class="form-control" placeholder="Mínimo 6 dígitos">
+            </div>
+            <div class="form-group">
+              <label for="profileConfirmNewPassword" class="form-label">Confirmar Nova Senha</label>
+              <input type="password" id="profileConfirmNewPassword" class="form-control" placeholder="Repita a nova senha">
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-dialog-footer" style="justify-content:space-between">
+        <button type="button" class="btn btn-danger-outline btn-sm" id="btnProfileLogout">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span>Sair</span>
+        </button>
+
+        <div style="display:flex; gap:8px">
+          <button type="button" class="btn btn-ghost" id="btnCancelProfileModal">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="btnSaveProfile">
+            <span class="btn-text">Salvar Alterações</span>
+            <div class="auth-spinner hidden" id="profileSpinner"></div>
           </button>
         </div>
       </div>
