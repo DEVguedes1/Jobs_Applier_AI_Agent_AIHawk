@@ -20,7 +20,69 @@
 </head>
 
 <body>
-  <div class="app-layout">
+  <main class="landing-page" id="landingPage">
+    <header class="landing-nav">
+      <a class="landing-brand" href="/" aria-label="Kiwi Bot, início">
+        <img src="/assets/icon.png" alt="" class="landing-brand-icon">
+        <span>Kiwi Bot</span>
+      </a>
+      <button type="button" class="landing-login-link" data-auth-tab="login">Entrar</button>
+    </header>
+
+    <section class="landing-hero">
+      <div class="landing-hero-copy">
+        <p class="landing-eyebrow"><span></span> ATS de carreira com automação</p>
+        <h1>Seu próximo trabalho começa com <span>menos trabalho manual.</span></h1>
+        <p class="landing-lead">Seu robô caçador de vagas: ele pesquisa, se candidata e organiza todo o seu processo seletivo.</p>
+        <div class="landing-actions">
+          <button type="button" class="btn btn-primary" data-auth-tab="register">Criar minha conta <span aria-hidden="true">→</span></button>
+          <button type="button" class="landing-secondary-link" data-auth-tab="login">Já tenho uma conta</button>
+        </div>
+        <p class="landing-note">Suas candidaturas, organizadas em um só lugar.</p>
+      </div>
+      <div class="landing-hero-art" aria-hidden="true">
+        <img src="/assets/icon.png" alt="">
+        <div class="landing-art-caption"><span class="landing-live-dot"></span> Sua busca, em movimento</div>
+      </div>
+    </section>
+
+    <section class="landing-section landing-how" id="como-funciona">
+      <div class="landing-section-heading">
+        <p class="landing-eyebrow">Do perfil à próxima oportunidade</p>
+        <h2>Um processo mais simples, do começo ao fim.</h2>
+      </div>
+      <ol class="landing-steps">
+        <li><span class="step-number">01</span><h3>Configure seu perfil</h3><p>Informe suas preferências e os dados que orientam sua busca.</p></li>
+        <li><span class="step-number">02</span><h3>Deixe o bot pesquisar</h3><p>O Kiwi Bot encontra oportunidades alinhadas e automatiza candidaturas compatíveis no LinkedIn.</p></li>
+        <li><span class="step-number">03</span><h3>Cuide das pendências</h3><p>Vagas que exigem uma ação manual ficam reunidas para você concluir a candidatura.</p></li>
+        <li><span class="step-number">04</span><h3>Acompanhe cada etapa</h3><p>Atualize o processo no dashboard e no Kanban, da triagem à proposta.</p></li>
+      </ol>
+    </section>
+
+    <section class="landing-section landing-features">
+      <div class="landing-section-heading">
+        <p class="landing-eyebrow">Tudo conectado à sua busca</p>
+        <h2>Mais clareza para seguir em frente.</h2>
+      </div>
+      <div class="landing-feature-grid">
+        <article><span class="feature-mark">↗</span><h3>Candidaturas automatizadas</h3><p>O bot pesquisa vagas e envia candidaturas compatíveis pelo LinkedIn.</p></article>
+        <article><span class="feature-mark">⌁</span><h3>Fila de pendências</h3><p>Encontre rapidamente as vagas que precisam da sua candidatura manual.</p></article>
+        <article><span class="feature-mark">◎</span><h3>Etapas do processo</h3><p>Registre triagens, entrevistas, testes e propostas por oportunidade.</p></article>
+        <article><span class="feature-mark">▤</span><h3>Pipeline Kanban</h3><p>Visualize e mova suas vagas entre as etapas do processo seletivo.</p></article>
+        <article><span class="feature-mark">⌂</span><h3>Gestão por empresas</h3><p>Reúna oportunidades e processos relacionados a cada empresa.</p></article>
+        <article><span class="feature-mark">⌗</span><h3>Métricas e relatórios</h3><p>Acompanhe candidaturas, processos ativos e conversões da sua busca.</p></article>
+      </div>
+    </section>
+
+    <section class="landing-final-cta">
+      <div><p class="landing-eyebrow">Sua próxima oportunidade está por aí</p><h2>Organize sua busca. Ganhe tempo para as conversas que importam.</h2></div>
+      <button type="button" class="btn btn-primary" data-auth-tab="register">Começar agora <span aria-hidden="true">→</span></button>
+    </section>
+
+    <footer class="landing-footer"><a class="landing-brand" href="/" aria-label="Kiwi Bot, início"><img src="/assets/icon.png" alt="" class="landing-brand-icon"><span>Kiwi Bot</span></a><span>Organize sua busca. Encontre seu próximo passo.</span></footer>
+  </main>
+
+  <div class="app-layout hidden" id="appLayout">
 
     <!-- ═══════════════════════════════════════════════════════════
          SIDEBAR DE NAVEGAÇÃO
@@ -999,8 +1061,8 @@
     <div class="modal-dialog profile-dialog">
       <div class="modal-dialog-header">
         <div>
-          <h3 id="profileModalTitle">Meu Perfil</h3>
-          <p class="modal-sub">Gerencie seus dados e altere sua senha de acesso</p>
+          <h3 id="profileModalTitle">Editar Perfil</h3>
+          <p class="modal-sub">Atualize seus dados e preferências de acesso</p>
         </div>
         <button type="button" class="modal-close-icon" id="btnCloseProfileModal" aria-label="Fechar">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1029,36 +1091,38 @@
           <span class="auth-alert-text" id="profileAlertText"></span>
         </div>
 
-        <form id="formEditProfile">
-          <div class="form-group">
-            <label for="profileInputName" class="form-label">Nome Completo</label>
-            <input type="text" id="profileInputName" class="form-control" required>
-          </div>
-
-          <div class="form-group">
-            <label for="profileInputEmail" class="form-label">E-mail</label>
-            <input type="email" id="profileInputEmail" class="form-control" required>
-          </div>
-
-          <div class="profile-section-divider">
-            <span>Alterar Senha (opcional)</span>
-          </div>
-
-          <div class="form-group">
-            <label for="profileCurrentPassword" class="form-label">Senha Atual</label>
-            <input type="password" id="profileCurrentPassword" class="form-control" placeholder="Necessário apenas para alterar a senha">
-          </div>
-
-          <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div class="form-group">
-              <label for="profileNewPassword" class="form-label">Nova Senha</label>
-              <input type="password" id="profileNewPassword" class="form-control" placeholder="Mínimo 6 dígitos">
+        <form id="formEditProfile" class="profile-form">
+          <section class="profile-form-section">
+            <div class="profile-section-heading"><h4>Dados da conta</h4><p>Informações usadas no seu perfil.</p></div>
+            <div class="profile-fields-grid">
+              <div class="form-group">
+                <label for="profileInputName" class="form-label">Nome completo</label>
+                <input type="text" id="profileInputName" class="form-control" autocomplete="name" required>
+              </div>
+              <div class="form-group">
+                <label for="profileInputEmail" class="form-label">E-mail</label>
+                <input type="email" id="profileInputEmail" class="form-control" autocomplete="email" required>
+              </div>
             </div>
+          </section>
+
+          <section class="profile-form-section">
+            <div class="profile-section-heading"><h4>Segurança</h4><p>Deixe os campos em branco para manter sua senha atual.</p></div>
             <div class="form-group">
-              <label for="profileConfirmNewPassword" class="form-label">Confirmar Nova Senha</label>
-              <input type="password" id="profileConfirmNewPassword" class="form-control" placeholder="Repita a nova senha">
+              <label for="profileCurrentPassword" class="form-label">Senha atual</label>
+              <input type="password" id="profileCurrentPassword" class="form-control" autocomplete="current-password" placeholder="Informe para definir uma nova senha">
             </div>
-          </div>
+            <div class="profile-fields-grid">
+              <div class="form-group">
+                <label for="profileNewPassword" class="form-label">Nova senha</label>
+                <input type="password" id="profileNewPassword" class="form-control" autocomplete="new-password" placeholder="Mínimo de 6 caracteres">
+              </div>
+              <div class="form-group">
+                <label for="profileConfirmNewPassword" class="form-label">Confirmar nova senha</label>
+                <input type="password" id="profileConfirmNewPassword" class="form-control" autocomplete="new-password" placeholder="Repita a nova senha">
+              </div>
+            </div>
+          </section>
         </form>
       </div>
 

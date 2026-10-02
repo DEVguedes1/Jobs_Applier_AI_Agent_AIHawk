@@ -3,7 +3,7 @@ const fs       = require('fs');
 const path     = require('path');
 const url      = require('url');
 const crypto   = require('crypto');
-const { spawn } = require('child_process');
+const { createBotRunner } = require('./bot_runner');
 
 const PORT       = process.env.PORT || 3000;
 const ROOT_DIR   = path.resolve(__dirname, '..');
@@ -34,44 +34,32 @@ const {
 initDb();
 seedDatabase(false);
 
+let botRunner;
+botRunner = createBotRunner({
+  rootDir: ROOT_DIR,
+  onLog: message => console.log(`[ROBO] ${message}`),
+  onRunStarted: ({ runId, startedAt }) => {
+    db.prepare(`INSERT INTO bot_runs (id, started_at, run_status) VALUES (?, ?, ?)`).run(runId, startedAt, 'running');
+  },
+  onRunFinished: ({ runId, finishedAt, status, shouldSync }) => {
+    db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(finishedAt, status, runId);
+    if (shouldSync) {
+      const added = seedFromCsvs();
+      botRunner.addLog(`Sincronização automática pós-execução: ${added} nova(s) vaga(s) processada(s).`);
+    }
+  }
+});
+
 // ─── Configuração Semântica das Etapas ───────────────────────────────────────
 const STATUS_CONFIG = {
-  pending:   { label: 'Pendente / Link Externo', icon: '📌', color: '#F59E0B' },
-  applied:   { label: 'Candidatura Enviada',      icon: '🚀', color: '#3B82F6' },
-  screening: { label: 'Triagem / Contato RH',    icon: '💬', color: '#8B5CF6' },
-  technical: { label: 'Desafio Técnico',          icon: '💻', color: '#06B6D4' },
-  interview: { label: 'Entrevista',               icon: '🎯', color: '#EC4899' },
-  offer:     { label: 'Proposta / Oferta',        icon: '🏆', color: '#22C55E' },
-  rejected:  { label: 'Não Selecionado',          icon: '❌', color: '#64748B' }
+  pending:   { label: 'Pendente / Link Externo', icon: '📌', color: '#A8C2AA' },
+  applied:   { label: 'Candidatura Enviada',      icon: '🚀', color: '#88A98A' },
+  screening: { label: 'Triagem / Contato RH',    icon: '💬', color: '#88A98A' },
+  technical: { label: 'Desafio Técnico',          icon: '💻', color: '#88A98A' },
+  interview: { label: 'Entrevista',               icon: '🎯', color: '#88A98A' },
+  offer:     { label: 'Proposta / Oferta',        icon: '🏆', color: '#A8C2AA' },
+  rejected:  { label: 'Não Selecionado',          icon: '❌', color: '#858A85' }
 };
-
-// ─── Estado do Robô LinkedIn ──────────────────────────────────────────────────
-let botProcess   = null;
-let botStatus    = 'idle'; // idle | running | waiting_captcha | completed | error
-let botLogs      = [];
-let botStartedAt = null;
-let botFinishedAt= null;
-
-function addBotLog(msg) {
-  const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
-  botLogs.push(line);
-  if (botLogs.length > 500) botLogs.shift();
-  console.log(`[ROBO] ${msg}`);
-}
-
-function getPythonCommand() {
-  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) return process.env.PYTHON_PATH;
-  const candidates = [
-    path.join(ROOT_DIR, 'venv', 'Scripts', 'python.exe'),
-    path.join(ROOT_DIR, '.venv', 'Scripts', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python310', 'python.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    'C:\\Python311\\python.exe', 'C:\\Python310\\python.exe', 'C:\\Python312\\python.exe',
-  ];
-  for (const c of candidates) { if (c && fs.existsSync(c)) return c; }
-  return 'python';
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const MIME_TYPES = {
@@ -456,125 +444,28 @@ const server = http.createServer((req, res) => {
 
   // ── GET /api/bot/status ───────────────────────────────────────────────────
   if (pathname === '/api/bot/status' && method === 'GET') {
-    json(res, 200, {
-      success: true,
-      status: botStatus,
-      isRunning: !!botProcess,
-      logs: botLogs.slice(-150),
-      startedAt: botStartedAt,
-      finishedAt: botFinishedAt
-    });
+    json(res, 200, { success: true, ...botRunner.getStatus() });
     return;
   }
 
   // ── POST /api/bot/start ───────────────────────────────────────────────────
   if (pathname === '/api/bot/start' && method === 'POST') {
-    if (botProcess) {
-      try {
-        process.kill(botProcess.pid, 0);
-        json(res, 400, { success: false, error: 'O robô já está em execução!' });
-        return;
-      } catch (e) {
-        botProcess = null;
-      }
-    }
-    const pyCmd = getPythonCommand();
-    botLogs = [];
-    botStartedAt  = new Date().toISOString();
-    botFinishedAt = null;
-    botStatus = 'running';
-
-    const runId = crypto.randomBytes(8).toString('hex');
-    db.prepare(`INSERT INTO bot_runs (id, started_at, run_status) VALUES (?, ?, ?)`).run(runId, botStartedAt, 'running');
-    addBotLog(`Iniciando o robô de candidaturas com: ${pyCmd} -u main.py`);
-
-    try {
-      const isDirectExe = pyCmd.endsWith('.exe') || pyCmd.includes('\\') || pyCmd.includes('/');
-      botProcess = spawn(pyCmd, ['-u', 'main.py'], {
-        cwd: ROOT_DIR,
-        shell: !isDirectExe,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' }
-      });
-
-      botProcess.stdout.on('data', data => {
-        const str = data.toString('utf-8');
-        const lines = str.split(/\r?\n/).filter(l => l.trim().length > 0);
-        for (const line of lines) {
-          addBotLog(line);
-          if (line.includes('PAUSA: Resolva Captcha') || line.includes('Aperte ENTER')) {
-            botStatus = 'waiting_captcha';
-          }
-        }
-      });
-
-      botProcess.stderr.on('data', data => {
-        data.toString('utf-8').split(/\r?\n/).filter(l => l.trim()).forEach(l => addBotLog(`[INFO] ${l}`));
-      });
-
-      botProcess.on('error', err => {
-        addBotLog(`Erro: ${err.message}`);
-        botStatus = 'error';
-        botProcess = null;
-        botFinishedAt = new Date().toISOString();
-        db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(botFinishedAt, 'error', runId);
-      });
-
-      botProcess.on('close', code => {
-        const status = code === 0 ? 'completed' : 'error';
-        addBotLog(`Execução finalizada com código ${code}.`);
-        botStatus = status;
-        botProcess = null;
-        botFinishedAt = new Date().toISOString();
-        db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(botFinishedAt, status, runId);
-        
-        // Sincroniza automaticamente com os CSVs e banco
-        const added = seedFromCsvs();
-        addBotLog(`Sincronização automática pós-execução: ${added} nova(s) vaga(s) processada(s).`);
-      });
-
-      json(res, 200, { success: true, message: 'Robô iniciado com sucesso!' });
-    } catch (err) {
-      botStatus = 'error';
-      botProcess = null;
-      db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(new Date().toISOString(), 'error', runId);
-      json(res, 500, { success: false, error: err.message });
-    }
+    const result = botRunner.start();
+    json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }
 
   // ── POST /api/bot/continue ────────────────────────────────────────────────
   if (pathname === '/api/bot/continue' && method === 'POST') {
-    if (botProcess?.stdin) {
-      try {
-        botProcess.stdin.write('\n');
-        addBotLog('Captcha resolvido — retomando busca...');
-        botStatus = 'running';
-        json(res, 200, { success: true });
-      } catch (e) {
-        json(res, 500, { success: false, error: 'Falha ao enviar confirmação' });
-      }
-    } else {
-      json(res, 400, { success: false, error: 'O robô não está aguardando confirmação.' });
-    }
+    const result = botRunner.continue();
+    json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }
 
   // ── POST /api/bot/stop ────────────────────────────────────────────────────
   if (pathname === '/api/bot/stop' && method === 'POST') {
-    if (botProcess) {
-      try {
-        botProcess.kill();
-        addBotLog('Robô interrompido pelo usuário.');
-        botProcess = null;
-        botStatus = 'idle';
-        botFinishedAt = new Date().toISOString();
-        json(res, 200, { success: true, message: 'Robô interrompido.' });
-      } catch (e) {
-        json(res, 500, { success: false, error: 'Erro ao interromper' });
-      }
-    } else {
-      json(res, 400, { success: false, error: 'O robô não está em execução.' });
-    }
+    const result = botRunner.stop();
+    json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }
 

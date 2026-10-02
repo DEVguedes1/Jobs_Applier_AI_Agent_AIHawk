@@ -26,13 +26,13 @@ const appState = {
 
 // Definição Semântica das Etapas do Processo — Estritamente Preto & Verde Kiwi
 const STAGE_DEFINITIONS = [
-  { key: 'pending', label: 'Pendente / Link Externo', color: '#86EFAC' },
-  { key: 'applied', label: 'Candidatura Enviada', color: '#22C55E' },
-  { key: 'screening', label: 'Triagem / Contato RH', color: '#16A34A' },
-  { key: 'technical', label: 'Desafio Técnico', color: '#34D399' },
-  { key: 'interview', label: 'Entrevista', color: '#4ADE80' },
-  { key: 'offer', label: 'Proposta / Oferta', color: '#22C55E' },
-  { key: 'rejected', label: 'Não Selecionado', color: '#71717A' }
+  { key: 'pending', label: 'Pendente / Link Externo', color: '#A8C2AA' },
+  { key: 'applied', label: 'Candidatura Enviada', color: '#88A98A' },
+  { key: 'screening', label: 'Triagem / Contato RH', color: '#88A98A' },
+  { key: 'technical', label: 'Desafio Técnico', color: '#88A98A' },
+  { key: 'interview', label: 'Entrevista', color: '#88A98A' },
+  { key: 'offer', label: 'Proposta / Oferta', color: '#A8C2AA' },
+  { key: 'rejected', label: 'Não Selecionado', color: '#858A85' }
 ];
 
 // Metadados das Telas do Menu
@@ -61,6 +61,8 @@ const VIEW_METADATA = {
 
 // Referências aos Elementos DOM
 const dom = {
+  landingPage: document.getElementById('landingPage'),
+  appLayout: document.getElementById('appLayout'),
   // Navegação
   navItems: document.querySelectorAll('.nav-item'),
   mobileNavBtns: document.querySelectorAll('.mobile-nav-btn'),
@@ -433,11 +435,11 @@ function renderDashboardView() {
 function renderFunnelVisualizer(jobs) {
   const total = jobs.length;
   const stages = [
-    { label: 'Oportunidades Mapeadas',  count: total, color: '#86EFAC' },
-    { label: 'Candidaturas Enviadas',   count: jobs.filter(j => j.status !== 'pending').length, color: '#22C55E' },
-    { label: 'Triagem / Contato RH',   count: jobs.filter(j => ['screening','technical','interview','offer'].includes(j.status)).length, color: '#16A34A' },
-    { label: 'Entrevistas / Testes',   count: jobs.filter(j => ['technical','interview','offer'].includes(j.status)).length, color: '#34D399' },
-    { label: 'Propostas Recebidas',    count: jobs.filter(j => j.status === 'offer').length, color: '#4ADE80' }
+    { label: 'Oportunidades Mapeadas',  count: total, color: '#A8C2AA' },
+    { label: 'Candidaturas Enviadas',   count: jobs.filter(j => j.status !== 'pending').length, color: '#88A98A' },
+    { label: 'Triagem / Contato RH',   count: jobs.filter(j => ['screening','technical','interview','offer'].includes(j.status)).length, color: '#88A98A' },
+    { label: 'Entrevistas / Testes',   count: jobs.filter(j => ['technical','interview','offer'].includes(j.status)).length, color: '#88A98A' },
+    { label: 'Propostas Recebidas',    count: jobs.filter(j => j.status === 'offer').length, color: '#A8C2AA' }
   ];
 
   dom.funnelVisualizer.innerHTML = stages.map(stage => {
@@ -478,8 +480,8 @@ function renderWorkModeChart(jobs) {
       labels: ['Remoto', 'Híbrido', 'Presencial', 'Outros'],
       datasets: [{
         data: [counts.Remoto, counts.Híbrido, counts.Presencial, counts.Outros],
-        backgroundColor: ['#22C55E', '#16A34A', '#14532D', '#27382B'],
-        borderColor: '#0A0F0B',
+        backgroundColor: ['#88A98A', '#88A98A', '#A8C2AA', '#505650'],
+        borderColor: '#111311',
         borderWidth: 2
       }]
     },
@@ -503,7 +505,7 @@ function renderStagesBarChart(jobs) {
 
   const labels = STAGE_DEFINITIONS.map(s => s.label.split(' / ')[0]);
   const data   = STAGE_DEFINITIONS.map(s => jobs.filter(j => j.status === s.key).length);
-  const colors = ['#86EFAC', '#22C55E', '#16A34A', '#34D399', '#4ADE80', '#22C55E', '#3F4E42'];
+  const colors = ['#A8C2AA', '#88A98A', '#88A98A', '#88A98A', '#88A98A', '#A8C2AA', '#505650'];
 
   if (appState.charts.stagesBar) appState.charts.stagesBar.destroy();
 
@@ -1026,7 +1028,7 @@ async function openBotModal() {
       dom.botTerminalLogs.innerHTML = '<div class="terminal-line" style="color: var(--accent-secondary); font-weight: 500;">[Inicializando robô e abrindo navegador Chrome...]</div>';
       dom.botStatusBadge.textContent = 'Iniciando...';
       dom.botStatusBadge.style.backgroundColor = 'var(--status-applied-bg)';
-      dom.botStatusBadge.style.color = '#60a5fa';
+      dom.botStatusBadge.style.color = 'var(--kiwi-primary-light)';
       await startBotExecution();
     } else {
       await pollBotStatus();
@@ -1119,7 +1121,7 @@ async function pollBotStatus() {
           <span>Robô Rodando...</span>
         `;
         dom.btnOpenBotModal.style.borderColor = 'var(--status-applied-border)';
-        dom.btnOpenBotModal.style.color = '#60a5fa';
+        dom.btnOpenBotModal.style.color = 'var(--kiwi-primary-light)';
       } else {
         dom.btnOpenBotModal.innerHTML = `
           <svg class="btn-icon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -1150,21 +1152,21 @@ async function pollBotStatus() {
     } else if (currentStatus === 'running') {
       badge.textContent = 'Executando...';
       badge.style.backgroundColor = 'var(--status-applied-bg)';
-      badge.style.color = '#60a5fa';
+      badge.style.color = 'var(--kiwi-primary-light)';
       dom.btnBotStart.classList.add('hidden');
       dom.btnBotStop.classList.remove('hidden');
       dom.botCaptchaAlert.classList.add('hidden');
     } else if (currentStatus === 'waiting_captcha') {
       badge.textContent = 'Aguardando Captcha / 2FA';
       badge.style.backgroundColor = 'var(--status-pending-bg)';
-      badge.style.color = '#facc15';
+      badge.style.color = 'var(--kiwi-primary-light)';
       dom.btnBotStart.classList.add('hidden');
       dom.btnBotStop.classList.remove('hidden');
       dom.botCaptchaAlert.classList.remove('hidden');
     } else if (currentStatus === 'completed') {
       badge.textContent = 'Finalizado com Sucesso';
       badge.style.backgroundColor = 'var(--status-offer-bg)';
-      badge.style.color = '#34d399';
+      badge.style.color = 'var(--kiwi-primary-light)';
       dom.btnBotStart.classList.remove('hidden');
       dom.btnBotStart.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -1177,7 +1179,7 @@ async function pollBotStatus() {
     } else if (currentStatus === 'error') {
       badge.textContent = 'Finalizado com Erro';
       badge.style.backgroundColor = 'var(--color-danger-subtle)';
-      badge.style.color = '#f87171';
+      badge.style.color = 'var(--text-secondary)';
       dom.btnBotStart.classList.remove('hidden');
       dom.btnBotStart.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -1192,10 +1194,10 @@ async function pollBotStatus() {
     // Renderizar Logs no Terminal
     if (data.logs && data.logs.length > 0) {
       dom.botTerminalLogs.innerHTML = data.logs.map(line => {
-        let color = '#cbd5e1';
-        if (line.includes('[ERRO]') || line.includes('Error') || line.includes('Erro')) color = '#f87171';
-        else if (line.includes('PAUSA') || line.includes('Aperte ENTER')) color = '#facc15';
-        else if (line.includes('✅') || line.includes('sucesso') || line.includes('Candidatura')) color = '#34d399';
+        let color = 'var(--text-secondary)';
+        if (line.includes('[ERRO]') || line.includes('Error') || line.includes('Erro')) color = 'var(--text-muted)';
+        else if (line.includes('PAUSA') || line.includes('Aperte ENTER')) color = 'var(--kiwi-primary-light)';
+        else if (line.includes('✅') || line.includes('sucesso') || line.includes('Candidatura')) color = 'var(--kiwi-primary-light)';
         return `<div class="terminal-line" style="color: ${color};">${escapeHtml(line)}</div>`;
       }).join('');
       dom.botTerminalLogs.scrollTop = dom.botTerminalLogs.scrollHeight;
@@ -1455,6 +1457,18 @@ function updateUserUI(user) {
   if (dom.profileInputEmail) dom.profileInputEmail.value = user.email;
 }
 
+function showPublicLanding() {
+  dom.landingPage?.classList.remove('hidden');
+  dom.appLayout?.classList.add('hidden');
+  document.body.classList.add('public-mode');
+}
+
+function showAppShell() {
+  dom.landingPage?.classList.add('hidden');
+  dom.appLayout?.classList.remove('hidden');
+  document.body.classList.remove('public-mode');
+}
+
 function showAuthModal(defaultTab = 'login') {
   if (!dom.authModal) return;
   dom.authModal.classList.remove('hidden');
@@ -1571,12 +1585,12 @@ function updatePasswordStrengthUI(pwd) {
   if (score === 1) {
     dom.meterBar1.classList.add('weak');
     dom.meterText.textContent = 'Força: Senha fraca';
-    dom.meterText.style.color = '#EF4444';
+    dom.meterText.style.color = 'var(--kiwi-primary-light)';
   } else if (score === 2) {
     dom.meterBar1.classList.add('medium');
     dom.meterBar2.classList.add('medium');
     dom.meterText.textContent = 'Força: Senha média';
-    dom.meterText.style.color = '#F59E0B';
+    dom.meterText.style.color = 'var(--kiwi-primary-light)';
   } else if (score >= 3) {
     dom.meterBar1.classList.add('strong');
     dom.meterBar2.classList.add('strong');
@@ -1628,18 +1642,16 @@ async function checkAuthStatus() {
     if (data.success && data.authenticated && data.user) {
       appState.user = data.user;
       updateUserUI(data.user);
+      showAppShell();
       hideAuthModal();
       loadData();
     } else {
       appState.user = null;
-      showAuthModal(data.userCount === 0 ? 'register' : 'login');
-      if (data.userCount === 0) {
-        showRegisterAlert('Boas-vindas ao Kiwi Bot! Cadastre seu primeiro usuário para começar.', true);
-      }
+      showPublicLanding();
     }
   } catch (err) {
     console.error('Erro ao verificar sessão:', err);
-    showAuthModal('login');
+    showPublicLanding();
   }
 }
 
@@ -1677,6 +1689,7 @@ async function handleLogin(e) {
       appState.user = data.user;
       updateUserUI(data.user);
       showToast(data.message || `Bem-vindo de volta, ${data.user.name}!`, 'success');
+      showAppShell();
       hideAuthModal();
       loadData();
     } else {
@@ -1744,6 +1757,7 @@ async function handleRegister(e) {
       appState.user = data.user;
       updateUserUI(data.user);
       showToast(`Conta criada com sucesso! Olá, ${data.user.name}!`, 'success');
+      showAppShell();
       hideAuthModal();
       loadData();
     } else {
@@ -1773,6 +1787,7 @@ async function handleLogout() {
   appState.user = null;
   closeTopbarUserMenu();
   closeProfileModal();
+  showPublicLanding();
   showAuthModal('login');
   showToast('Você saiu da sua conta.', 'info');
 }
@@ -1884,6 +1899,14 @@ async function handleProfileSave() {
 
 // ── Configuração de Ouvintes de Autenticação ──────────────────────────────
 function setupAuthEventListeners() {
+  if (dom.authModal && dom.authModal.parentElement !== document.body) {
+    document.body.appendChild(dom.authModal);
+  }
+
+  document.querySelectorAll('[data-auth-tab]').forEach(button => {
+    button.addEventListener('click', () => showAuthModal(button.dataset.authTab));
+  });
+
   // Troca de abas
   dom.tabBtnLogin?.addEventListener('click', () => switchAuthTab('login'));
   dom.tabBtnRegister?.addEventListener('click', () => switchAuthTab('register'));
