@@ -1,10 +1,17 @@
 /**
- * Kiwi Bot - Database Layer (SQLite via node:sqlite)
- * Portable SQL schema compatible with PostgreSQL / SQLite.
- * Uses Node.js 24 native DatabaseSync for zero external build dependencies.
+ * Kiwi Bot - Database Layer (SQLite)
+ * Usa o módulo nativo do Node quando disponível e cai para better-sqlite3
+ * para manter compatibilidade em máquinas com Node 22/24 e instalações mais simples.
  */
 
-const { DatabaseSync } = require('node:sqlite');
+let DatabaseClass;
+try {
+  const sqlite = require('node:sqlite');
+  DatabaseClass = sqlite.DatabaseSync;
+} catch (error) {
+  DatabaseClass = require('better-sqlite3');
+}
+
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -15,7 +22,7 @@ const TRACKER_JSON = path.join(__dirname, 'jobs_tracker.json');
 const CSV_SUCESSO = path.join(ROOT_DIR, 'vagas_sucesso.csv');
 const CSV_PENDENTES = path.join(ROOT_DIR, 'vagas_pendentes.csv');
 
-const db = new DatabaseSync(DB_FILE);
+const db = new DatabaseClass(DB_FILE);
 
 // Enable WAL mode and foreign keys for performance and integrity
 db.exec('PRAGMA journal_mode = WAL;');
@@ -467,7 +474,7 @@ function getStats() {
   const workModeRows = db.prepare('SELECT work_mode, COUNT(*) as c FROM opportunities GROUP BY work_mode').all();
   const byWorkMode = { Remoto: 0, Híbrido: 0, Presencial: 0, Outros: 0 };
   for (const r of workModeRows) {
-    if (r.work_mode in byWorkMode) {
+    if (Object.prototype.hasOwnProperty.call(byWorkMode, r.work_mode)) {
       byWorkMode[r.work_mode] = r.c;
     } else {
       byWorkMode.Outros += r.c;

@@ -1,5 +1,22 @@
 [
   {
+    "id": "custom_mud819ub_knbh",
+    "title": "trainee levty 2027",
+    "company": "Levty",
+    "location": "MInas Gerais",
+    "workMode": "Presencial",
+    "url": "https://www.levty.com/br/trainee/inscricao/enviado",
+    "status": "applied",
+    "originalStatus": "Cadastrado Manualmente",
+    "dateAdded": "22/09/2026, 19:03:56",
+    "appliedDate": "22/09/2026, 19:03:56",
+    "source": "Cadastro Manual",
+    "notes": "",
+    "salary": "",
+    "tags": [],
+    "updatedAt": "2026-09-22T22:03:56.819Z"
+  },
+  {
     "id": "0e2ef20f1252",
     "title": "Estágio em T.I (Desenvolvimento de Sistemas)",
     "company": "Tilibra",
@@ -210,7 +227,7 @@
     "location": "João Pessoa",
     "workMode": "Presencial",
     "url": "https://www.linkedin.com/jobs/view/4419171276/",
-    "status": "applied",
+    "status": "technical",
     "originalStatus": "Link Externo (Não clicado)",
     "dateAdded": "16/09/2026 09:28",
     "appliedDate": "21/09/2026, 18:31:36",
@@ -218,7 +235,7 @@
     "notes": "Link externo (não foi clicado pelo bot)",
     "salary": "",
     "tags": [],
-    "updatedAt": "2026-09-21T21:31:36.513Z"
+    "updatedAt": "2026-09-22T21:16:14.106Z"
   },
   {
     "id": "6b6a794a176e",
@@ -227,7 +244,7 @@
     "location": "João Pessoa",
     "workMode": "Presencial",
     "url": "https://www.linkedin.com/jobs/view/4463128178/",
-    "status": "applied",
+    "status": "screening",
     "originalStatus": "Link Externo (Não clicado)",
     "dateAdded": "16/09/2026 09:28",
     "appliedDate": "21/09/2026, 18:35:09",
@@ -235,7 +252,7 @@
     "notes": "Link externo (não foi clicado pelo bot)",
     "salary": "",
     "tags": [],
-    "updatedAt": "2026-09-21T21:35:09.180Z"
+    "updatedAt": "2026-09-22T21:33:27.766Z"
   },
   {
     "id": "e217c47b4da7",
@@ -482,15 +499,15 @@
     "location": "Brasil",
     "workMode": "Presencial",
     "url": "https://www.linkedin.com/jobs/view/4467747129/",
-    "status": "pending",
+    "status": "applied",
     "originalStatus": "Formulário complexo (Manual Necessário) ⚠️",
     "dateAdded": "16/09/2026 09:31",
-    "appliedDate": null,
+    "appliedDate": "22/09/2026, 17:48:40",
     "source": "LinkedIn Bot (Pendente/Externo)",
     "notes": "Requer candidatura manual (perguntas personalizadas ou testes no LinkedIn)",
     "salary": "",
     "tags": [],
-    "updatedAt": "2026-09-16T12:39:01.028Z"
+    "updatedAt": "2026-09-22T20:48:40.595Z"
   },
   {
     "id": "185a6213ca74",
@@ -499,7 +516,7 @@
     "location": "João Pessoa",
     "workMode": "Presencial",
     "url": "https://www.linkedin.com/jobs/view/4462527917/",
-    "status": "pending",
+    "status": "rejected",
     "originalStatus": "Formulário complexo (Manual Necessário) ⚠️",
     "dateAdded": "16/09/2026 09:31",
     "appliedDate": null,
@@ -507,7 +524,7 @@
     "notes": "Requer candidatura manual (perguntas personalizadas ou testes no LinkedIn)",
     "salary": "",
     "tags": [],
-    "updatedAt": "2026-09-16T12:39:01.028Z"
+    "updatedAt": "2026-09-22T20:48:54.643Z"
   },
   {
     "id": "18edfd451fae",
@@ -856,15 +873,15 @@
     "location": "João Pessoa",
     "workMode": "Presencial",
     "url": "https://www.linkedin.com/jobs/view/4438531515/",
-    "status": "pending",
+    "status": "applied",
     "originalStatus": "Link Externo (Não clicado)",
     "dateAdded": "16/09/2026 09:36",
-    "appliedDate": null,
+    "appliedDate": "22/09/2026, 17:47:42",
     "source": "LinkedIn Bot (Pendente/Externo)",
     "notes": "Link externo (não foi clicado pelo bot)",
     "salary": "",
     "tags": [],
-    "updatedAt": "2026-09-16T12:39:01.029Z"
+    "updatedAt": "2026-09-22T20:47:42.630Z"
   },
   {
     "id": "e507d9807645",
