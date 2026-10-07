@@ -30,9 +30,19 @@ const {
   updateUserProfile
 } = require('./db');
 
-// Ensure tables exist and initial migration is performed
-initDb();
-seedDatabase(false);
+// O carregamento do banco não deve bloquear a abertura do servidor HTTP. Se a migração
+// do SQLite for mais pesada em alguma máquina, o dashboard ainda precisa ficar disponível.
+function initializeDatabase() {
+  try {
+    initDb();
+    seedDatabase(false);
+    console.log('[SERVER] Banco do dashboard inicializado com sucesso.');
+  } catch (error) {
+    console.error('[SERVER] Falha ao inicializar o banco do dashboard:', error.message);
+  }
+}
+
+setImmediate(initializeDatabase);
 
 let botRunner;
 botRunner = createBotRunner({
@@ -490,6 +500,11 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
     fs.createReadStream(filePath).pipe(res);
   });
+});
+
+server.on('error', (error) => {
+  console.error('[SERVER] Falha ao iniciar o servidor HTTP:', error.message);
+  process.exit(1);
 });
 
 server.listen(PORT, () => {
