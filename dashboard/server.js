@@ -9,18 +9,20 @@ const PORT       = process.env.PORT || 3000;
 const ROOT_DIR   = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// ─── Banco de Dados SQLite (node:sqlite) ───────────────────────────────────────
 const {
   db,
   initDb,
-  seedDatabase,
-  seedFromCsvs,
   getAllJobs,
   getStats,
   getRecentActivities,
   upsertCompany,
   mapJob,
-  syncBackToCsv,
+  isBotJobRegistered,
+  saveBotOpportunity,
+  isolateExternalOpportunity,
+  getBotOpportunitiesToVerify,
+  updateBotVerifiedStatus,
+  importLegacyBatch,
   createUser,
   authenticateUser,
   createSession,
@@ -35,7 +37,6 @@ const {
 function initializeDatabase() {
   try {
     initDb();
-    seedDatabase(false);
     console.log('[SERVER] Banco do dashboard inicializado com sucesso.');
   } catch (error) {
     console.error('[SERVER] Falha ao inicializar o banco do dashboard:', error.message);
@@ -48,15 +49,14 @@ let botRunner;
 botRunner = createBotRunner({
   rootDir: ROOT_DIR,
   onLog: message => console.log(`[ROBO] ${message}`),
-  onRunStarted: ({ runId, startedAt }) => {
-    db.prepare(`INSERT INTO bot_runs (id, started_at, run_status) VALUES (?, ?, ?)`).run(runId, startedAt, 'running');
+  onRunStarted: ({ runId, startedAt, userId }) => {
+    db.prepare(`INSERT INTO bot_runs (id, user_id, started_at, run_status) VALUES (?, ?, ?, ?)`)
+      .run(runId, userId, startedAt, 'running');
   },
-  onRunFinished: ({ runId, finishedAt, status, shouldSync }) => {
-    db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=?`).run(finishedAt, status, runId);
-    if (shouldSync) {
-      const added = seedFromCsvs();
-      botRunner.addLog(`Sincronização automática pós-execução: ${added} nova(s) vaga(s) processada(s).`);
-    }
+  onRunFinished: ({ runId, finishedAt, status, userId }) => {
+    db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=? AND user_id=?`)
+      .run(finishedAt, status, runId, userId);
+    botRunner.addLog(`Execução concluída. Dados registrados diretamente no SQLite.`);
   }
 });
 
@@ -146,13 +146,6 @@ const server = http.createServer((req, res) => {
   const query     = parsedUrl.query;
   const method    = req.method;
 
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
   // ── AUTH: GET /api/auth/me ───────────────────────────────────────────────
   if (pathname === '/api/auth/me' && method === 'GET') {
     const user = getAuthUser(req);
@@ -184,7 +177,8 @@ const server = http.createServer((req, res) => {
         }
         const user = createUser({ name, email, password, avatarUrl });
         const session = createSession(user.id, 30);
-        res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`);
+        const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+        res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}${secureCookie}`);
         logActivity(null, 'usuario_criado', '', user.email, `Novo usuário registrado: ${user.name} (${user.email})`);
         json(res, 201, { success: true, user, token: session.token, message: 'Conta criada com sucesso!' });
       } catch (err) {
@@ -211,7 +205,8 @@ const server = http.createServer((req, res) => {
       }
       const days = rememberMe ? 60 : 7;
       const session = createSession(user.id, days);
-      res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${days * 24 * 60 * 60}`);
+      const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      res.setHeader('Set-Cookie', `kiwi_session=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${days * 24 * 60 * 60}${secureCookie}`);
       json(res, 200, { success: true, user, token: session.token, message: `Bem-vindo de volta, ${user.name}!` });
     }).catch(err => {
       json(res, 400, { success: false, error: 'Requisição inválida.' });
@@ -250,6 +245,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const apiUser = pathname.startsWith('/api/') && !pathname.startsWith('/api/auth/')
+    ? getAuthUser(req)
+    : null;
+  if (pathname.startsWith('/api/') && !pathname.startsWith('/api/auth/') && !apiUser) {
+    json(res, 401, { success: false, error: 'Autenticação obrigatória. Entre novamente.' });
+    return;
+  }
+
   // ── GET /api/jobs ─────────────────────────────────────────────────────────
   if (pathname === '/api/jobs' && method === 'GET') {
     const filters = {
@@ -258,16 +261,16 @@ const server = http.createServer((req, res) => {
       company: query.company || 'all',
       search: query.search || ''
     };
-    const jobs  = getAllJobs(filters);
-    const stats = getStats();
-    const activities = getRecentActivities(20);
+    const jobs  = getAllJobs(apiUser.id, filters);
+    const stats = getStats(apiUser.id);
+    const activities = getRecentActivities(apiUser.id, 20);
     json(res, 200, { success: true, stats, jobs, activities, statusConfig: STATUS_CONFIG });
     return;
   }
 
   // ── GET /api/stats ────────────────────────────────────────────────────────
   if (pathname === '/api/stats' && method === 'GET') {
-    const stats = getStats();
+    const stats = getStats(apiUser.id);
     json(res, 200, { success: true, stats });
     return;
   }
@@ -275,14 +278,14 @@ const server = http.createServer((req, res) => {
   // ── GET /api/activities ───────────────────────────────────────────────────
   if (pathname === '/api/activities' && method === 'GET') {
     const limit = parseInt(query.limit, 10) || 20;
-    const activities = getRecentActivities(limit);
+    const activities = getRecentActivities(apiUser.id, limit);
     json(res, 200, { success: true, activities });
     return;
   }
 
   // ── GET /api/reports ──────────────────────────────────────────────────────
   if (pathname === '/api/reports' && method === 'GET') {
-    const stats = getStats();
+    const stats = getStats(apiUser.id);
     const funnel = [
       { stage: 'Mapeadas', count: stats.total, rate: 100 },
       { stage: 'Candidaturas', count: stats.total - stats.pending, rate: stats.total > 0 ? Math.round(((stats.total - stats.pending) / stats.total) * 100) : 0 },
@@ -311,10 +314,10 @@ const server = http.createServer((req, res) => {
 
         db.prepare(`
           INSERT INTO opportunities
-            (id, title, company_id, company_name, location, work_mode, stage, url, date_added, date_applied, source, notes, salary, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, title, company_id, company_name, location, work_mode, stage, url, date_added, date_applied, source, notes, salary, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          id, data.title.trim(), cid, data.company.trim(),
+          id, apiUser.id, data.title.trim(), cid, data.company.trim(),
           data.location?.trim() || 'Brasil',
           data.workMode || 'Remoto',
           stage,
@@ -329,7 +332,6 @@ const server = http.createServer((req, res) => {
         );
 
         logActivity(id, 'criacao', '', stage, `Nova vaga cadastrada: ${data.title.trim()} @ ${data.company.trim()}`);
-        if (stage === 'applied') syncBackToCsv();
 
         const job = mapJob(db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id));
         json(res, 201, { success: true, job });
@@ -348,7 +350,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const updates = JSON.parse(body);
-        const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id);
+        const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ? AND user_id = ?`).get(id, apiUser.id);
         if (!existing) { json(res, 404, { success: false, error: 'Vaga não encontrada' }); return; }
 
         const prevStage = existing.stage;
@@ -386,9 +388,10 @@ const server = http.createServer((req, res) => {
         sets.push(`updated_at = ?`);
         vals.push(nowIso);
         vals.push(id);
+        vals.push(apiUser.id);
 
         if (sets.length > 1) {
-          db.prepare(`UPDATE opportunities SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+          db.prepare(`UPDATE opportunities SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...vals);
         }
 
         // Auditoria
@@ -400,11 +403,7 @@ const server = http.createServer((req, res) => {
           logActivity(id, 'anotacao', '', '', 'Anotação atualizada');
         }
 
-        if (targetStage === 'applied' || prevStage === 'applied') {
-          syncBackToCsv();
-        }
-
-        const job = mapJob(db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id));
+        const job = mapJob(db.prepare(`SELECT * FROM opportunities WHERE id = ? AND user_id = ?`).get(id, apiUser.id));
         json(res, 200, { success: true, job });
       } catch (err) {
         json(res, 400, { success: false, error: err.message });
@@ -416,25 +415,10 @@ const server = http.createServer((req, res) => {
   // ── DELETE /api/jobs/:id ──────────────────────────────────────────────────
   if (pathname.startsWith('/api/jobs/') && method === 'DELETE') {
     const id = pathname.replace('/api/jobs/', '');
-    const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ?`).get(id);
-    const result = db.prepare(`DELETE FROM opportunities WHERE id = ?`).run(id);
+    const existing = db.prepare(`SELECT * FROM opportunities WHERE id = ? AND user_id = ?`).get(id, apiUser.id);
+    const result = db.prepare(`DELETE FROM opportunities WHERE id = ? AND user_id = ?`).run(id, apiUser.id);
     if (result.changes === 0) { json(res, 404, { success: false, error: 'Vaga não encontrada' }); return; }
-    
-    if (existing?.stage === 'applied') syncBackToCsv();
     json(res, 200, { success: true, message: 'Vaga removida com sucesso' });
-    return;
-  }
-
-  // ── POST /api/sync ────────────────────────────────────────────────────────
-  if (pathname === '/api/sync' && method === 'POST') {
-    const added = seedFromCsvs();
-    const stats = getStats();
-    json(res, 200, {
-      success: true,
-      message: `Sincronização concluída! ${added} nova(s) vaga(s) importada(s).`,
-      addedCount: added,
-      ...stats
-    });
     return;
   }
 
@@ -445,10 +429,113 @@ const server = http.createServer((req, res) => {
              COUNT(o.id) AS total,
              SUM(CASE WHEN o.stage NOT IN ('rejected') THEN 1 ELSE 0 END) AS active
       FROM companies c
-      LEFT JOIN opportunities o ON o.company_id = c.id
+      JOIN opportunities o ON o.company_id = c.id AND o.user_id = ?
       GROUP BY c.id ORDER BY total DESC
-    `).all();
+    `).all(apiUser.id);
     json(res, 200, { success: true, companies });
+    return;
+  }
+
+  // ── Bot persistence API (also used by desktop bot installations) ──────────
+  if (pathname === '/api/bot/opportunities/exists' && method === 'GET') {
+    json(res, 200, { success: true, registered: isBotJobRegistered(apiUser.id, query.url || '') });
+    return;
+  }
+
+  if (pathname === '/api/bot/opportunities/verify' && method === 'GET') {
+    json(res, 200, { success: true, opportunities: getBotOpportunitiesToVerify(apiUser.id) });
+    return;
+  }
+
+  if (pathname === '/api/bot/opportunities' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      if (!data.title || !data.company) {
+        json(res, 400, { success: false, error: 'Título e empresa são obrigatórios.' });
+        return;
+      }
+      const id = saveBotOpportunity(apiUser.id, data);
+      json(res, 200, { success: true, id });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
+    return;
+  }
+
+  if (pathname === '/api/bot/opportunities/external' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      if (!data.title || !data.company || !data.url) {
+        json(res, 400, { success: false, error: 'Título, empresa e URL externa são obrigatórios.' });
+        return;
+      }
+      const id = isolateExternalOpportunity(apiUser.id, data);
+      json(res, 200, { success: true, id });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
+    return;
+  }
+
+  if (pathname.startsWith('/api/bot/opportunities/') && pathname.endsWith('/status') && method === 'PUT') {
+    const opportunityId = pathname.slice('/api/bot/opportunities/'.length, -'/status'.length);
+    readJsonBody(req).then(data => {
+      const updated = updateBotVerifiedStatus(
+        apiUser.id, opportunityId, data.stage, data.statusMessage, data.description
+      );
+      if (!updated) {
+        json(res, 404, { success: false, error: 'Oportunidade não encontrada.' });
+        return;
+      }
+      json(res, 200, { success: true });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
+    return;
+  }
+
+  if (pathname === '/api/bot/runs' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      const runId = data.runId || crypto.randomBytes(8).toString('hex');
+      const startedAt = data.startedAt || new Date().toISOString();
+      db.prepare(`
+        INSERT OR IGNORE INTO bot_runs (id, user_id, started_at, run_status)
+        VALUES (?, ?, ?, 'running')
+      `).run(runId, apiUser.id, startedAt);
+      json(res, 200, { success: true, runId });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
+    return;
+  }
+
+  if (pathname.startsWith('/api/bot/runs/') && method === 'PUT') {
+    const runId = pathname.slice('/api/bot/runs/'.length);
+    readJsonBody(req).then(data => {
+      db.prepare(`
+        UPDATE bot_runs
+        SET finished_at = ?, vagas_encontradas = ?, candidaturas_enviadas = ?, run_status = ?, log_output = ?
+        WHERE id = ? AND user_id = ?
+      `).run(
+        data.finishedAt || new Date().toISOString(), data.vagas || 0, data.enviadas || 0,
+        data.status || 'completed', data.logOutput || '', runId, apiUser.id
+      );
+      json(res, 200, { success: true });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
+    return;
+  }
+
+  if (pathname === '/api/migration/import' && method === 'POST') {
+    readJsonBody(req).then(data => {
+      if (!Array.isArray(data.opportunities) || !Array.isArray(data.activities)) {
+        json(res, 400, { success: false, error: 'A migração exige listas de oportunidades e atividades.' });
+        return;
+      }
+      const result = importLegacyBatch(apiUser.id, data);
+      json(res, 200, { success: true, imported: result.opportunities });
+    }).catch(error => {
+      json(res, 400, { success: false, error: error.message });
+    });
     return;
   }
 
@@ -460,7 +547,22 @@ const server = http.createServer((req, res) => {
 
   // ── POST /api/bot/start ───────────────────────────────────────────────────
   if (pathname === '/api/bot/start' && method === 'POST') {
-    const result = botRunner.start();
+    const result = botRunner.start('apply', {
+      userId: apiUser.id,
+      apiUrl: process.env.KIWI_PUBLIC_URL || `http://127.0.0.1:${PORT}`,
+      sessionToken: getSessionToken(req)
+    });
+    json(res, result.statusCode || (result.success ? 200 : 400), result);
+    return;
+  }
+
+  // ── POST /api/bot/verify ──────────────────────────────────────────────────
+  if (pathname === '/api/bot/verify' && method === 'POST') {
+    const result = botRunner.start('verify', {
+      userId: apiUser.id,
+      apiUrl: process.env.KIWI_PUBLIC_URL || `http://127.0.0.1:${PORT}`,
+      sessionToken: getSessionToken(req)
+    });
     json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }

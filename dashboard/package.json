@@ -16,7 +16,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^11.9.1",
+    "better-sqlite3": "^11.10.0",
     "sqlite3": "^5.1.7"
   }
 }

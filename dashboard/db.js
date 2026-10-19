@@ -13,14 +13,11 @@ try {
 }
 
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 
-const DB_FILE = path.join(__dirname, 'kiwibot.db');
-const ROOT_DIR = path.resolve(__dirname, '..');
-const TRACKER_JSON = path.join(__dirname, 'jobs_tracker.json');
-const CSV_SUCESSO = path.join(ROOT_DIR, 'vagas_sucesso.csv');
-const CSV_PENDENTES = path.join(ROOT_DIR, 'vagas_pendentes.csv');
+const DB_FILE = process.env.KIWI_DB_PATH
+  ? path.resolve(process.env.KIWI_DB_PATH)
+  : path.join(__dirname, 'kiwibot.db');
 
 const db = new DatabaseClass(DB_FILE);
 
@@ -45,6 +42,7 @@ function initDb() {
     CREATE TABLE IF NOT EXISTS opportunities (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      user_id TEXT,
       company_id TEXT,
       company_name TEXT NOT NULL,
       location TEXT DEFAULT 'Brasil',
@@ -76,6 +74,7 @@ function initDb() {
 
     CREATE TABLE IF NOT EXISTS bot_runs (
       id TEXT PRIMARY KEY,
+      user_id TEXT,
       started_at TEXT NOT NULL,
       finished_at TEXT,
       vagas_encontradas INTEGER DEFAULT 0,
@@ -112,6 +111,21 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
   `);
+
+  const opportunityColumns = db.prepare('PRAGMA table_info(opportunities)').all();
+  if (!opportunityColumns.some(column => column.name === 'user_id')) {
+    db.exec('ALTER TABLE opportunities ADD COLUMN user_id TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_opportunities_user_id ON opportunities(user_id)');
+  const botRunColumns = db.prepare('PRAGMA table_info(bot_runs)').all();
+  if (!botRunColumns.some(column => column.name === 'user_id')) {
+    db.exec('ALTER TABLE bot_runs ADD COLUMN user_id TEXT');
+  }
+
+  const firstUser = db.prepare('SELECT id FROM users ORDER BY created_at LIMIT 1').get();
+  if (firstUser) {
+    db.prepare('UPDATE opportunities SET user_id = ? WHERE user_id IS NULL').run(firstUser.id);
+  }
 }
 
 /**
@@ -159,270 +173,12 @@ function mapJob(row) {
 }
 
 /**
- * Parse CSV Lines Helper
- */
-function parseCsv(filepath) {
-  if (!fs.existsSync(filepath)) return [];
-  const content = fs.readFileSync(filepath, 'utf8');
-  const lines = content.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length <= 1) return [];
-
-  const results = [];
-  for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(';').map(p => p.trim());
-    if (parts.length >= 5) {
-      results.push({
-        dataHora: parts[0] || '',
-        cargo: parts[1] || '',
-        empresa: parts[2] || '',
-        local: parts[3] || 'Brasil',
-        status: parts[4] || '',
-        link: parts[5] || ''
-      });
-    }
-  }
-  return results;
-}
-
-/**
- * Synchronize back to vagas_sucesso.csv
- * Ensures all applied opportunities from the database are present in the CSV file
- */
-function syncBackToCsv() {
-  try {
-    const appliedJobs = db.prepare(`
-      SELECT date_applied, date_added, title, company_name, location, original_status, url
-      FROM opportunities
-      WHERE stage = 'applied'
-      ORDER BY date_applied DESC
-    `).all();
-
-    let csvContent = 'Data/Hora;Cargo;Empresa;Local;Status;Link da Vaga\n';
-    for (const job of appliedJobs) {
-      const date = job.date_applied || job.date_added || new Date().toLocaleString('pt-BR');
-      const status = job.original_status || 'Candidatura Enviada com Sucesso! ✅';
-      csvContent += `${date};${job.title};${job.company_name};${job.location};${status};${job.url}\n`;
-    }
-    fs.writeFileSync(CSV_SUCESSO, csvContent, 'utf8');
-    console.log(`[DB] vagas_sucesso.csv atualizado com ${appliedJobs.length} candidaturas enviadas.`);
-  } catch (err) {
-    console.error('[DB] Erro ao sincronizar vagas_sucesso.csv:', err.message);
-  }
-}
-
-/**
- * Seed Database from jobs_tracker.json (preserving 23 applied + 6 rejected + 28 pending)
- * and CSVs
- */
-function seedDatabase(force = false) {
-  initDb();
-
-  const countRow = db.prepare('SELECT COUNT(*) as count FROM opportunities').get();
-  // Check if we need to force re-seed to restore the user's 23 applied jobs
-  const appliedCountRow = db.prepare("SELECT COUNT(*) as count FROM opportunities WHERE stage = 'applied'").get();
-  
-  // If database has 0 opportunities OR fewer than 23 applied jobs when jobs_tracker has 23, we migrate!
-  if (countRow.count > 0 && appliedCountRow.count >= 23 && !force) {
-    console.log(`[DB] Banco já possui ${countRow.count} vagas (${appliedCountRow.count} candidaturas enviadas). Migração dispensada.`);
-    return countRow.count;
-  }
-
-  console.log('[DB] Iniciando migração e recuperação completa das candidaturas...');
-
-  // Read jobs_tracker.json if exists
-  let trackerJobs = [];
-  if (fs.existsSync(TRACKER_JSON)) {
-    try {
-      trackerJobs = JSON.parse(fs.readFileSync(TRACKER_JSON, 'utf8'));
-      console.log(`[DB] Encontradas ${trackerJobs.length} vagas em jobs_tracker.json.`);
-    } catch (e) {
-      console.error('[DB] Erro ao ler jobs_tracker.json:', e.message);
-    }
-  }
-
-  const existingUrls = new Set();
-  const insertOpp = db.prepare(`
-    INSERT OR REPLACE INTO opportunities (
-      id, title, company_id, company_name, location, work_mode, stage,
-      url, date_added, date_applied, source, notes, salary, original_status,
-      status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertActivity = db.prepare(`
-    INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  let importedCount = 0;
-  const nowIso = new Date().toISOString();
-
-  // 1. Import from jobs_tracker.json (has the accurate applied: 23, rejected: 6, pending: 28)
-  for (const item of trackerJobs) {
-    const id = item.id || ('job_' + crypto.randomBytes(6).toString('hex'));
-    const companyId = upsertCompany(item.company || 'Empresa Confidencial');
-    const stage = item.status || 'pending'; // 'applied', 'rejected', 'pending', etc.
-    const url = item.url || '';
-    if (url) existingUrls.add(url);
-
-    insertOpp.run(
-      id,
-      item.title || 'Vaga Sem Título',
-      companyId,
-      item.company || 'Empresa Confidencial',
-      item.location || 'Brasil',
-      item.workMode || 'Remoto',
-      stage,
-      url,
-      item.dateAdded || item.appliedDate || new Date().toLocaleString('pt-BR'),
-      item.appliedDate || (stage === 'applied' ? (item.dateAdded || new Date().toLocaleString('pt-BR')) : null),
-      item.source || 'LinkedIn Bot (Easy Apply)',
-      item.notes || '',
-      item.salary || '',
-      item.originalStatus || (stage === 'applied' ? 'Candidatura Enviada com Sucesso! ✅' : ''),
-      stage === 'rejected' ? 'closed' : 'active',
-      nowIso,
-      item.updatedAt || nowIso
-    );
-
-    // Activity log
-    const actId = crypto.randomBytes(8).toString('hex');
-    const actDesc = stage === 'applied'
-      ? `Candidatura enviada via robô para ${item.title} @ ${item.company}`
-      : `Oportunidade importada: ${item.title} @ ${item.company}`;
-    
-    insertActivity.run(
-      actId,
-      id,
-      stage === 'applied' ? 'candidatura_enviada' : 'criacao',
-      '',
-      stage,
-      actDesc,
-      item.appliedDate || item.dateAdded || nowIso
-    );
-
-    importedCount++;
-  }
-
-  // 2. Cross-check CSV files for any extra records not in tracker
-  const csvSucesso = parseCsv(CSV_SUCESSO);
-  for (const c of csvSucesso) {
-    if (c.link && existingUrls.has(c.link)) continue;
-    const id = 'csv_s_' + crypto.randomBytes(6).toString('hex');
-    const companyId = upsertCompany(c.empresa);
-    insertOpp.run(
-      id, c.cargo, companyId, c.empresa, c.local || 'Brasil',
-      c.local?.toLowerCase().includes('remot') ? 'Remoto' : 'Presencial',
-      'applied', c.link, c.dataHora, c.dataHora,
-      'LinkedIn Bot (Easy Apply)', '', '', c.status,
-      'active', nowIso, nowIso
-    );
-    if (c.link) existingUrls.add(c.link);
-    importedCount++;
-  }
-
-  const csvPendentes = parseCsv(CSV_PENDENTES);
-  for (const c of csvPendentes) {
-    if (c.link && existingUrls.has(c.link)) continue;
-    const id = 'csv_p_' + crypto.randomBytes(6).toString('hex');
-    const companyId = upsertCompany(c.empresa);
-    insertOpp.run(
-      id, c.cargo, companyId, c.empresa, c.local || 'Brasil',
-      c.local?.toLowerCase().includes('remot') ? 'Remoto' : 'Presencial',
-      'pending', c.link, c.dataHora, null,
-      'LinkedIn Bot (Easy Apply)', '', '', c.status,
-      'active', nowIso, nowIso
-    );
-    if (c.link) existingUrls.add(c.link);
-    importedCount++;
-  }
-
-  console.log(`[DB] Migração concluída com sucesso! Total de vagas no banco: ${importedCount}`);
-
-  // Synchronize back to vagas_sucesso.csv so the CSV also reflects all 23 applied jobs!
-  syncBackToCsv();
-
-  return importedCount;
-}
-
-/**
- * Seed / Sync from CSVs (called after bot execution or manual sync button)
- */
-function seedFromCsvs() {
-  initDb();
-  let added = 0;
-  const existingUrls = new Set(
-    db.prepare("SELECT url FROM opportunities WHERE url IS NOT NULL AND url != ''").all().map(r => r.url)
-  );
-
-  const insertOpp = db.prepare(`
-    INSERT INTO opportunities (
-      id, title, company_id, company_name, location, work_mode, stage,
-      url, date_added, date_applied, source, notes, salary, original_status,
-      status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const nowIso = new Date().toISOString();
-
-  // Sucessos
-  const sucessos = parseCsv(CSV_SUCESSO);
-  for (const row of sucessos) {
-    if (row.link && existingUrls.has(row.link)) continue;
-    const id = 'bot_' + crypto.randomBytes(6).toString('hex');
-    const companyId = upsertCompany(row.empresa);
-    const workMode = (row.cargo + ' ' + row.local).toLowerCase().includes('remot') ? 'Remoto' : 'Presencial';
-
-    insertOpp.run(
-      id, row.cargo, companyId, row.empresa, row.local || 'Brasil',
-      workMode, 'applied', row.link, row.dataHora || new Date().toLocaleString('pt-BR'),
-      row.dataHora || new Date().toLocaleString('pt-BR'),
-      'LinkedIn Bot (Easy Apply)', '', '', row.status,
-      'active', nowIso, nowIso
-    );
-
-    db.prepare(`
-      INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      crypto.randomBytes(8).toString('hex'), id, 'candidatura_enviada', '', 'applied',
-      `Nova candidatura enviada pelo robô: ${row.cargo} @ ${row.empresa}`, nowIso
-    );
-
-    if (row.link) existingUrls.add(row.link);
-    added++;
-  }
-
-  // Pendentes
-  const pendentes = parseCsv(CSV_PENDENTES);
-  for (const row of pendentes) {
-    if (row.link && existingUrls.has(row.link)) continue;
-    const id = 'bot_' + crypto.randomBytes(6).toString('hex');
-    const companyId = upsertCompany(row.empresa);
-    const workMode = (row.cargo + ' ' + row.local).toLowerCase().includes('remot') ? 'Remoto' : 'Presencial';
-
-    insertOpp.run(
-      id, row.cargo, companyId, row.empresa, row.local || 'Brasil',
-      workMode, 'pending', row.link, row.dataHora || new Date().toLocaleString('pt-BR'),
-      null, 'LinkedIn Bot (Easy Apply)', '', '', row.status,
-      'active', nowIso, nowIso
-    );
-
-    if (row.link) existingUrls.add(row.link);
-    added++;
-  }
-
-  syncBackToCsv();
-  return added;
-}
-
-/**
  * Get All Jobs with Optional Filters
  */
-function getAllJobs(filters = {}) {
+function getAllJobs(userId, filters = {}) {
   initDb();
-  let sql = 'SELECT * FROM opportunities WHERE 1=1';
-  const params = [];
+  let sql = 'SELECT * FROM opportunities WHERE user_id = ?';
+  const params = [userId];
 
   if (filters.stage && filters.stage !== 'all') {
     sql += ' AND stage = ?';
@@ -451,15 +207,15 @@ function getAllJobs(filters = {}) {
 /**
  * Get Comprehensive Dashboard Stats (All from real SQL aggregate queries)
  */
-function getStats() {
+function getStats(userId) {
   initDb();
 
-  const totalRow = db.prepare('SELECT COUNT(*) as c FROM opportunities').get();
-  const appliedRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE stage = 'applied'").get();
-  const activeRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE stage IN ('screening', 'technical', 'interview')").get();
-  const pendingRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE stage = 'pending'").get();
-  const offersRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE stage = 'offer'").get();
-  const rejectedRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE stage = 'rejected'").get();
+  const totalRow = db.prepare('SELECT COUNT(*) as c FROM opportunities WHERE user_id = ?').get(userId);
+  const appliedRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE user_id = ? AND stage = 'applied'").get(userId);
+  const activeRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE user_id = ? AND stage IN ('screening', 'technical', 'interview')").get(userId);
+  const pendingRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE user_id = ? AND stage = 'pending'").get(userId);
+  const offersRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE user_id = ? AND stage = 'offer'").get(userId);
+  const rejectedRow = db.prepare("SELECT COUNT(*) as c FROM opportunities WHERE user_id = ? AND stage = 'rejected'").get(userId);
 
   const total = totalRow.c || 0;
   const applied = appliedRow.c || 0;
@@ -471,7 +227,7 @@ function getStats() {
   const conversionRate = total > 0 ? Math.round(((applied + active + offers) / total) * 100) : 0;
 
   // Work mode counts
-  const workModeRows = db.prepare('SELECT work_mode, COUNT(*) as c FROM opportunities GROUP BY work_mode').all();
+  const workModeRows = db.prepare('SELECT work_mode, COUNT(*) as c FROM opportunities WHERE user_id = ? GROUP BY work_mode').all(userId);
   const byWorkMode = { Remoto: 0, Híbrido: 0, Presencial: 0, Outros: 0 };
   for (const r of workModeRows) {
     if (Object.prototype.hasOwnProperty.call(byWorkMode, r.work_mode)) {
@@ -482,7 +238,7 @@ function getStats() {
   }
 
   // Stage counts
-  const stageRows = db.prepare('SELECT stage, COUNT(*) as c FROM opportunities GROUP BY stage').all();
+  const stageRows = db.prepare('SELECT stage, COUNT(*) as c FROM opportunities WHERE user_id = ? GROUP BY stage').all(userId);
   const byStage = {};
   for (const r of stageRows) {
     byStage[r.stage] = r.c;
@@ -492,11 +248,11 @@ function getStats() {
   const locationRows = db.prepare(`
     SELECT location, COUNT(*) as count
     FROM opportunities
-    WHERE location IS NOT NULL AND location != ''
+    WHERE user_id = ? AND location IS NOT NULL AND location != ''
     GROUP BY location
     ORDER BY count DESC
     LIMIT 10
-  `).all();
+  `).all(userId);
 
   return {
     total,
@@ -515,15 +271,16 @@ function getStats() {
 /**
  * Get Recent Activities
  */
-function getRecentActivities(limit = 20) {
+function getRecentActivities(userId, limit = 20) {
   initDb();
   const rows = db.prepare(`
     SELECT a.*, o.title as job_title, o.company_name
     FROM activities a
-    LEFT JOIN opportunities o ON o.id = a.opportunity_id
+    JOIN opportunities o ON o.id = a.opportunity_id
+    WHERE o.user_id = ?
     ORDER BY a.created_at DESC
     LIMIT ?
-  `).all(limit);
+  `).all(userId, limit);
 
   return rows.map(r => ({
     id: r.id,
@@ -536,6 +293,197 @@ function getRecentActivities(limit = 20) {
     company: r.company_name || '',
     createdAt: r.created_at
   }));
+}
+
+function normalizeJobUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${parsed.pathname.replace(/\/+$/, '')}`;
+  } catch (error) {
+    return '';
+  }
+}
+
+function findBotOpportunity(userId, url) {
+  const normalizedUrl = normalizeJobUrl(url);
+  if (!normalizedUrl) return null;
+  const rows = db.prepare(`
+    SELECT id, url FROM opportunities
+    WHERE user_id = ? AND url IS NOT NULL AND url != ''
+  `).all(userId);
+  return rows.find(row => normalizeJobUrl(row.url) === normalizedUrl) || null;
+}
+
+function isBotJobRegistered(userId, url) {
+  return !!findBotOpportunity(userId, url);
+}
+
+function saveBotOpportunity(userId, {
+  title, company, location, url, status_msg: statusMsg, is_success: isSuccess = false
+}) {
+  initDb();
+  const nowIso = new Date().toISOString();
+  const date = new Date().toLocaleString('pt-BR');
+  const companyName = company?.trim() || 'Empresa Não Informada';
+  const companyId = upsertCompany(companyName);
+  const stage = isSuccess ? 'applied' : 'pending';
+  const existing = findBotOpportunity(userId, url);
+
+  if (existing) {
+    const previous = db.prepare('SELECT stage FROM opportunities WHERE id = ? AND user_id = ?').get(existing.id, userId);
+    db.prepare(`
+      UPDATE opportunities
+      SET title = ?, company_id = ?, company_name = ?, location = ?, stage = ?,
+          original_status = ?, date_applied = COALESCE(date_applied, ?), updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `).run(
+      title, companyId, companyName, location, stage, statusMsg,
+      isSuccess ? date : null, nowIso, existing.id, userId
+    );
+    if (previous && previous.stage !== stage) {
+      logOpportunityActivity(existing.id, 'stage_change', previous.stage, stage, `Estágio atualizado para: ${stage}`, nowIso);
+    }
+    return existing.id;
+  }
+
+  const id = 'bot_' + crypto.randomBytes(6).toString('hex');
+  const workMode = /remot/i.test(`${title} ${location}`) ? 'Remoto' : 'Presencial';
+  db.prepare(`
+    INSERT INTO opportunities
+      (id, user_id, title, company_id, company_name, location, work_mode, stage, url,
+       date_added, date_applied, source, original_status, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).run(
+    id, userId, title, companyId, companyName, location || 'Brasil', workMode, stage, url || '',
+    date, isSuccess ? date : null, 'LinkedIn Bot (Easy Apply)', statusMsg, nowIso, nowIso
+  );
+  logOpportunityActivity(
+    id,
+    isSuccess ? 'candidatura_enviada' : 'criacao',
+    '',
+    stage,
+    isSuccess ? `Candidatura enviada via robô: ${title} @ ${companyName}` : `Vaga mapeada pelo robô: ${title} @ ${companyName}`,
+    nowIso
+  );
+  return id;
+}
+
+function isolateExternalOpportunity(userId, { title, company, location, url }) {
+  initDb();
+  const existing = findBotOpportunity(userId, url);
+  if (existing) return existing.id;
+
+  const nowIso = new Date().toISOString();
+  const date = new Date().toLocaleString('pt-BR');
+  const companyName = company?.trim() || 'Empresa Não Informada';
+  const companyId = upsertCompany(companyName);
+  const id = 'ext_' + crypto.randomBytes(6).toString('hex');
+  const workMode = /remot/i.test(`${title} ${location}`) ? 'Remoto' : 'Presencial';
+  db.prepare(`
+    INSERT INTO opportunities
+      (id, user_id, title, company_id, company_name, location, work_mode, stage, url, date_added,
+       source, notes, original_status, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, userId, title, companyId, companyName, location || 'Brasil', workMode, url,
+    date, 'Link Externo (Não Cadastrado)', 'Isolado automaticamente para triagem manual/posterior',
+    'LINK_EXTERNO_NAO_CADASTRADO', 'LINK_EXTERNO_NAO_CADASTRADO', nowIso, nowIso
+  );
+  logOpportunityActivity(
+    id,
+    'link_externo_isolado',
+    '',
+    'LINK_EXTERNO_NAO_CADASTRADO',
+    `Link externo não-LinkedIn isolado para análise: ${title} @ ${companyName}`,
+    nowIso
+  );
+  return id;
+}
+
+function logOpportunityActivity(opportunityId, eventType, previous, next, description, createdAt) {
+  db.prepare(`
+    INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(crypto.randomBytes(8).toString('hex'), opportunityId, eventType, previous, next, description, createdAt);
+}
+
+function getBotOpportunitiesToVerify(userId) {
+  return db.prepare(`
+    SELECT id, title, company_name, location, stage, url, original_status, status
+    FROM opportunities
+    WHERE user_id = ? AND url IS NOT NULL AND url != ''
+      AND url LIKE '%linkedin.com/jobs/view%'
+    ORDER BY updated_at DESC
+  `).all(userId);
+}
+
+function updateBotVerifiedStatus(userId, opportunityId, stage, statusMessage, description) {
+  const opportunity = db.prepare(`
+    SELECT stage FROM opportunities WHERE id = ? AND user_id = ?
+  `).get(opportunityId, userId);
+  if (!opportunity) return false;
+
+  const nowIso = new Date().toISOString();
+  db.prepare(`
+    UPDATE opportunities SET stage = ?, original_status = ?, updated_at = ?
+    WHERE id = ? AND user_id = ?
+  `).run(stage, statusMessage, nowIso, opportunityId, userId);
+  logOpportunityActivity(opportunityId, 'status_verificado', opportunity.stage, stage, description, nowIso);
+  return true;
+}
+
+function importLegacyBatch(userId, { opportunities = [], activities = [] }) {
+  initDb();
+  const idMap = new Map();
+  const now = new Date().toISOString();
+  db.exec('BEGIN');
+  try {
+    for (const item of opportunities) {
+      if (!item.title || !item.company_name) continue;
+      const companyId = upsertCompany(item.company_name);
+      const oldId = String(item.id || crypto.randomBytes(8).toString('hex'));
+      const newId = `legacy_${userId}_${oldId}`;
+      const existing = db.prepare('SELECT id FROM opportunities WHERE id = ?').get(newId);
+      if (existing) {
+        idMap.set(oldId, existing.id);
+        continue;
+      }
+      db.prepare(`
+        INSERT INTO opportunities (
+          id, user_id, title, company_id, company_name, location, work_mode, stage, url, date_added,
+          date_applied, source, notes, salary, original_status, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        newId, userId, item.title, companyId, item.company_name, item.location || 'Brasil',
+        item.work_mode || 'Remoto', item.stage || 'pending', item.url || '',
+        item.date_added || now, item.date_applied || null, item.source || 'Migração SQLite',
+        item.notes || '', item.salary || '', item.original_status || '', item.status || 'active',
+        item.created_at || now, item.updated_at || now
+      );
+      idMap.set(oldId, newId);
+    }
+    for (const item of activities) {
+      const opportunityId = item.opportunity_id ? idMap.get(String(item.opportunity_id)) : null;
+      if (!opportunityId) continue;
+      const activityId = item.id
+        ? `legacy_${userId}_${String(item.id)}`
+        : crypto.randomBytes(8).toString('hex');
+      if (db.prepare('SELECT id FROM activities WHERE id = ?').get(activityId)) continue;
+      db.prepare(`
+        INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        activityId, opportunityId, item.event_type || 'migracao',
+        item.prev_value || '', item.new_value || '', item.description || 'Atividade migrada',
+        item.created_at || now
+      );
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+  return { opportunities: idMap.size };
 }
 
 /**
@@ -575,6 +523,7 @@ function createUser({ name, email, password, avatarUrl = '', role = 'admin' }) {
     throw new Error('Este e-mail já está cadastrado.');
   }
 
+  const isFirstUser = getUserCount() === 0;
   const id = 'usr_' + crypto.randomBytes(8).toString('hex');
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashPassword(password, salt);
@@ -584,6 +533,9 @@ function createUser({ name, email, password, avatarUrl = '', role = 'admin' }) {
     INSERT INTO users (id, name, email, password_hash, salt, role, avatar_url, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, name.trim(), cleanEmail, hash, salt, role, avatarUrl ? avatarUrl.trim() : '', now, now);
+  if (isFirstUser) {
+    db.prepare('UPDATE opportunities SET user_id = ? WHERE user_id IS NULL').run(id);
+  }
 
   return {
     id,
@@ -739,14 +691,17 @@ function updateUserProfile(userId, { name, email, avatarUrl, currentPassword, ne
 module.exports = {
   db,
   initDb,
-  seedDatabase,
-  seedFromCsvs,
   getAllJobs,
   getStats,
   getRecentActivities,
   upsertCompany,
   mapJob,
-  syncBackToCsv,
+  isBotJobRegistered,
+  saveBotOpportunity,
+  isolateExternalOpportunity,
+  getBotOpportunitiesToVerify,
+  updateBotVerifiedStatus,
+  importLegacyBatch,
   // Auth exports
   createUser,
   authenticateUser,
@@ -756,4 +711,3 @@ module.exports = {
   getUserCount,
   updateUserProfile
 };
-

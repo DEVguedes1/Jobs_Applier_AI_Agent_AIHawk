@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" width="100%" height="100%" style="background:#0b1120; font-family:'Segoe UI', Inter, -apple-system, sans-serif;">
+  <defs>
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="cardGradDark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="kiwiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#6d28d9" />
+    </linearGradient>
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38bdf8" />
+    </marker>
+    <marker id="arrowKiwi" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#10b981" />
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f59e0b" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="950" fill="url(#bgGlow)" />
+  
+  <!-- Grid Accent Background -->
+  <g opacity="0.05" stroke="#ffffff" stroke-width="1">
+    <pattern id="smallGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" />
+    </pattern>
+    <rect width="1400" height="950" fill="url(#smallGrid)" />
+  </g>
+
+  <!-- Header Banner -->
+  <rect x="50" y="30" width="1300" height="85" rx="14" fill="#1e293b" stroke="#334155" stroke-width="1.5" filter="url(#dropShadow)" />
+  <circle cx="85" cy="72" r="22" fill="url(#kiwiGrad)" />
+  <path d="M 78 72 L 83 77 L 93 67" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <text x="125" y="65" font-size="22" font-weight="700" fill="#f8fafc" letter-spacing="0.5">ARQUITETURA DO SISTEMA: JOB TRACKER &amp; AI BOT</text>
+  <text x="125" y="90" font-size="13" font-weight="400" fill="#94a3b8">Visão Geral dos Componentes, Fluxos de Automação, Persistência SQLite Direta e Isolamento de Links Externos</text>
+
+  <rect x="1100" y="55" width="220" height="35" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="1.5" />
+  <circle cx="1120" cy="72" r="5" fill="#10b981" />
+  <text x="1135" y="77" font-size="12" font-weight="600" fill="#34d399">CSV &amp; E-MAILS ELIMINADOS</text>
+
+  <!-- ================= LAYER 1: CLIENT / DASHBOARD (LEFT COLUMN) ================= -->
+  <rect x="50" y="145" width="370" height="740" rx="14" fill="url(#cardGradDark)" stroke="#334155" stroke-width="1.5" filter="url(#dropShadow)" />
+  <rect x="50" y="145" width="370" height="45" rx="14" fill="#0f172a" />
+  <rect x="50" y="180" width="370" height="10" fill="#0f172a" />
+  <text x="70" y="174" font-size="15" font-weight="700" fill="#38bdf8">1. CAMADA DE APRESENTAÇÃO (SPA)</text>
+  <text x="350" y="174" font-size="12" font-weight="600" fill="#94a3b8">Frontend</text>
+
+  <!-- Dashboard Component: UI SPA -->
+  <rect x="70" y="210" width="330" height="140" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2" />
+  <rect x="85" y="225" width="110" height="24" rx="6" fill="#0284c7" />
+  <text x="95" y="241" font-size="11" font-weight="700" fill="#ffffff">SPA INTERFACE</text>
+  <text x="85" y="272" font-size="15" font-weight="700" fill="#f1f5f9">Job Tracker Dashboard</text>
+  <text x="85" y="294" font-size="12" fill="#cbd5e1">• Quadro Kanban Interativo de Candidaturas</text>
+  <text x="85" y="312" font-size="12" fill="#cbd5e1">• Funil Analítico &amp; Métricas de Conversão</text>
+  <text x="85" y="330" font-size="12" fill="#cbd5e1">• Gestão de Status: LINK_EXTERNO_NAO_CADASTRADO</text>
+
+  <!-- Dashboard Component: Bot Runner Controller -->
+  <rect x="70" y="370" width="330" height="135" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+  <rect x="85" y="385" width="125" height="24" rx="6" fill="#475569" />
+  <text x="95" y="401" font-size="11" font-weight="700" fill="#e2e8f0">PAINEL DO ROBÔ</text>
+  <text x="85" y="432" font-size="14" font-weight="700" fill="#f1f5f9">Controle de Operações</text>
+  <text x="85" y="454" font-size="12" fill="#cbd5e1">• Disparo: "Executar Candidaturas"</text>
+  <text x="85" y="472" font-size="12" fill="#cbd5e1">• Disparo: "Verificar Estado de Vagas"</text>
+  <text x="85" y="490" font-size="12" fill="#cbd5e1">• Streaming de Logs e Terminal em Tempo Real</text>
+
+  <!-- Node.js Backend API Server -->
+  <rect x="70" y="525" width="330" height="180" rx="10" fill="#1e293b" stroke="#10b981" stroke-width="1.2" />
+  <rect x="85" y="540" width="150" height="24" rx="6" fill="#059669" />
+  <text x="95" y="556" font-size="11" font-weight="700" fill="#ffffff">NODE.JS API (server.js)</text>
+  <text x="85" y="586" font-size="14" font-weight="700" fill="#f1f5f9">Backend &amp; Process Manager</text>
+  <text x="85" y="608" font-size="12" fill="#cbd5e1">• Módulo Nativo `node:sqlite` (Node 22 LTS)</text>
+  <text x="85" y="626" font-size="12" fill="#cbd5e1">• Gerenciador de Subprocessos (bot_runner.js)</text>
+  <text x="85" y="644" font-size="12" fill="#cbd5e1">• Endpoints REST: /api/opportunities, /api/stats</text>
+  <text x="85" y="662" font-size="12" fill="#cbd5e1">• Auth por Sessão (SHA-256 + Salt)</text>
+  <text x="85" y="680" font-size="12" fill="#10b981" font-weight="600">✓ Sincronização 100% Direta no Banco</text>
+
+  <!-- Tech Badges -->
+  <rect x="70" y="730" width="330" height="135" rx="10" fill="#0f172a" stroke="#334155" stroke-width="1" />
+  <text x="85" y="755" font-size="12" font-weight="700" fill="#94a3b8">STACK TECNOLÓGICA WEB</text>
+  <text x="85" y="780" font-size="12" fill="#e2e8f0">• Node.js v22.23+ (Sem dependências externas gyp)</text>
+  <text x="85" y="802" font-size="12" fill="#e2e8f0">• Vanilla JavaScript Moderno (ES6+) &amp; HTML5/CSS3</text>
+  <text x="85" y="824" font-size="12" fill="#e2e8f0">• Chart.js para Funil e Gráficos Analíticos</text>
+  <text x="85" y="846" font-size="12" fill="#e2e8f0">• Port: 3000 (HTTP REST)</text>
+
+  <!-- ================= LAYER 2: PERSISTENCE (CENTER COLUMN) ================= -->
+  <rect x="460" y="145" width="360" height="740" rx="14" fill="url(#cardGradDark)" stroke="#334155" stroke-width="1.5" filter="url(#dropShadow)" />
+  <rect x="460" y="145" width="360" height="45" rx="14" fill="#0f172a" />
+  <rect x="460" y="180" width="360" height="10" fill="#0f172a" />
+  <text x="480" y="174" font-size="15" font-weight="700" fill="#10b981">2. CAMADA DE DADOS CENTRAL (SQLITE)</text>
+  <text x="760" y="174" font-size="12" font-weight="600" fill="#94a3b8">Database</text>
+
+  <!-- SQLite DB Card -->
+  <rect x="480" y="210" width="320" height="360" rx="10" fill="#1e293b" stroke="#10b981" stroke-width="1.5" />
+  <rect x="495" y="225" width="160" height="24" rx="6" fill="#047857" />
+  <text x="505" y="241" font-size="11" font-weight="700" fill="#ffffff">SQLITE EMBEDDED DB</text>
+  <text x="495" y="272" font-size="16" font-weight="700" fill="#34d399">kiwibot.db (WAL Mode)</text>
+  <text x="495" y="294" font-size="12" fill="#94a3b8">Alta concorrência com Write-Ahead Logging</text>
+
+  <!-- Table 1: Opportunities -->
+  <rect x="495" y="310" width="290" height="60" rx="6" fill="#0f172a" stroke="#334155" />
+  <text x="510" y="330" font-size="13" font-weight="700" fill="#f8fafc">opportunities</text>
+  <text x="510" y="348" font-size="11" fill="#cbd5e1">id, title, company_id, stage, url, status...</text>
+  <text x="510" y="362" font-size="10" font-weight="600" fill="#f59e0b">Fila: status = 'LINK_EXTERNO_NAO_CADASTRADO'</text>
+
+  <!-- Table 2: Companies -->
+  <rect x="495" y="380" width="290" height="48" rx="6" fill="#0f172a" stroke="#334155" />
+  <text x="510" y="400" font-size="13" font-weight="700" fill="#f8fafc">companies</text>
+  <text x="510" y="418" font-size="11" fill="#cbd5e1">id, name, website, linkedin, timestamps</text>
+
+  <!-- Table 3: Activities -->
+  <rect x="495" y="438" width="290" height="48" rx="6" fill="#0f172a" stroke="#334155" />
+  <text x="510" y="458" font-size="13" font-weight="700" fill="#f8fafc">activities (Auditoria &amp; Linha do Tempo)</text>
+  <text x="510" y="476" font-size="11" fill="#cbd5e1">id, opportunity_id, event_type, prev_value, new_value...</text>
+
+  <!-- Table 4: Bot Runs -->
+  <rect x="495" y="496" width="290" height="48" rx="6" fill="#0f172a" stroke="#334155" />
+  <text x="510" y="516" font-size="13" font-weight="700" fill="#f8fafc">bot_runs (Histórico de Execuções)</text>
+  <text x="510" y="534" font-size="11" fill="#cbd5e1">id, started_at, finished_at, run_status, log_output</text>
+
+  <!-- Data Flow Notice: Direct Sync Only -->
+  <rect x="480" y="590" width="320" height="150" rx="10" fill="#0f172a" stroke="#10b981" stroke-dasharray="4" />
+  <text x="500" y="618" font-size="13" font-weight="700" fill="#34d399">ARQUITETURA 100% BANCO</text>
+  <text x="500" y="642" font-size="12" fill="#cbd5e1">✗ Sem dependência de CSVs</text>
+  <text x="500" y="662" font-size="12" fill="#cbd5e1">✗ Sem relatórios anexados por SMTP/E-mail</text>
+  <text x="500" y="682" font-size="12" fill="#cbd5e1">✓ Escrita concorrente segura via SQLite WAL</text>
+  <text x="500" y="702" font-size="12" fill="#cbd5e1">✓ Atualizações em tempo real visíveis no Dashboard</text>
+  <text x="500" y="722" font-size="12" fill="#38bdf8" font-weight="600">✓ Rotina de expurgo ativo de arquivos CSV residuais</text>
+
+  <!-- Python DB Manager Bridge -->
+  <rect x="480" y="760" width="320" height="105" rx="10" fill="#1e293b" stroke="#0284c7" stroke-width="1.2" />
+  <text x="500" y="785" font-size="13" font-weight="700" fill="#38bdf8">src/database.py (Python ORM)</text>
+  <text x="500" y="807" font-size="12" fill="#cbd5e1">• Centraliza conexões e transações SQLite</text>
+  <text x="500" y="827" font-size="12" fill="#cbd5e1">• Deduplicação inteligente de vagas por URL</text>
+  <text x="500" y="847" font-size="12" fill="#cbd5e1">• Expurgo automático de resquícios de arquivos CSV</text>
+
+  <!-- ================= LAYER 3: BOT AUTOMATION & TARGETS (RIGHT COLUMN) ================= -->
+  <rect x="860" y="145" width="490" height="740" rx="14" fill="url(#cardGradDark)" stroke="#334155" stroke-width="1.5" filter="url(#dropShadow)" />
+  <rect x="860" y="145" width="490" height="45" rx="14" fill="#0f172a" />
+  <rect x="860" y="180" width="490" height="10" fill="#0f172a" />
+  <text x="880" y="174" font-size="15" font-weight="700" fill="#f59e0b">3. MOTOR DE AUTOMAÇÃO &amp; CLASSIFICAÇÃO (PYTHON)</text>
+
+  <!-- Bot Module: Main Application -->
+  <rect x="880" y="210" width="450" height="120" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+  <rect x="895" y="225" width="135" height="24" rx="6" fill="#0369a1" />
+  <text x="905" y="241" font-size="11" font-weight="700" fill="#ffffff">MÓDULO 1: CANDIDATURA</text>
+  <text x="895" y="272" font-size="15" font-weight="700" fill="#f1f5f9">main.py (Fluxo Easy Apply)</text>
+  <text x="895" y="294" font-size="12" fill="#cbd5e1">• Varredura com critérios de busca (work_preferences.yaml)</text>
+  <text x="895" y="312" font-size="12" fill="#cbd5e1">• Submissão automática em vagas Easy Apply (Candidatura Simplificada)</text>
+
+  <!-- NEW FEATURE: Status Verifier & External Links Isolator -->
+  <rect x="880" y="345" width="450" height="210" rx="10" fill="#1e293b" stroke="#f59e0b" stroke-width="2" />
+  <rect x="895" y="360" width="190" height="24" rx="6" fill="#b45309" />
+  <text x="905" y="376" font-size="11" font-weight="700" fill="#ffffff">NOVO MÓDULO (FASE 2)</text>
+  <text x="895" y="407" font-size="15" font-weight="700" fill="#fbbf24">src/status_verifier.py</text>
+  
+  <rect x="895" y="420" width="420" height="58" rx="6" fill="#0f172a" stroke="#b45309" stroke-width="1" />
+  <text x="905" y="440" font-size="12" font-weight="700" fill="#fde68a">1. Verificação Passiva de Estado (Sem aplicar)</text>
+  <text x="905" y="460" font-size="11" fill="#cbd5e1">Consulta estado atual de vagas existentes (Enviada, Encerrada, Em Análise)</text>
+
+  <rect x="895" y="485" width="420" height="58" rx="6" fill="#0f172a" stroke="#f59e0b" stroke-width="1" />
+  <text x="905" y="505" font-size="12" font-weight="700" fill="#fde68a">2. Filtro &amp; Isolamento de Links Externos</text>
+  <text x="905" y="525" font-size="11" fill="#cbd5e1">Detecta links fora do LinkedIn ➔ Se não cadastrado: LINK_EXTERNO_NAO_CADASTRADO</text>
+
+  <!-- Selenium Browser Driver -->
+  <rect x="880" y="570" width="450" height="100" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+  <text x="895" y="598" font-size="14" font-weight="700" fill="#f1f5f9">Selenium WebDriver &amp; Chrome Incognito</text>
+  <text x="895" y="620" font-size="12" fill="#cbd5e1">• src/utils/chrome_utils.py com webdriver_manager</text>
+  <text x="895" y="640" font-size="12" fill="#cbd5e1">• Navegação headless/visual com suporte a autenticação por cookies/sessão</text>
+
+  <!-- Target Systems: LinkedIn & External Sites -->
+  <rect x="880" y="685" width="450" height="180" rx="10" fill="#0f172a" stroke="#334155" stroke-width="1" />
+  <text x="895" y="712" font-size="13" font-weight="700" fill="#94a3b8">ALVOS EXTERNOS DE VARREDURA</text>
+  
+  <rect x="895" y="725" width="200" height="60" rx="6" fill="#1e293b" stroke="#0077b5" />
+  <text x="910" y="748" font-size="13" font-weight="700" fill="#38bdf8">LinkedIn Jobs</text>
+  <text x="910" y="768" font-size="11" fill="#94a3b8">Easy Apply &amp; Job Status</text>
+
+  <rect x="910" y="800" width="405" height="50" rx="6" fill="#1e293b" stroke="#f59e0b" />
+  <text x="925" y="822" font-size="12" font-weight="700" fill="#fbbf24">Plataformas Externas (Gupy, Workday, Lever, etc.)</text>
+  <text x="925" y="838" font-size="11" fill="#cbd5e1">Links isolados imediatamente sem preenchimento</text>
+
+  <!-- ================= CONNECTORS / ARROWS ================= -->
+  <!-- SPA to Node Backend -->
+  <path d="M 400 300 L 440 300 L 440 560 L 400 560" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="445" y="440" font-size="10" fill="#38bdf8" transform="rotate(90 445 440)">REST API / JSON</text>
+
+  <!-- Node Backend to SQLite -->
+  <path d="M 400 620 L 480 620" fill="none" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowKiwi)" />
+  <text x="420" y="612" font-size="11" font-weight="600" fill="#10b981">node:sqlite</text>
+
+  <!-- Node Backend (Bot Runner) to Python Execution -->
+  <path d="M 370 705 L 370 720 L 880 720 L 880 390 L 895 390" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowAmber)" />
+  <text x="590" y="715" font-size="11" font-weight="600" fill="#f59e0b">spawn('python -u ...')</text>
+
+  <!-- Python DB Manager to SQLite -->
+  <path d="M 880 470 L 800 470" fill="none" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowKiwi)" />
+  <text x="815" y="462" font-size="11" font-weight="600" fill="#10b981">Direto no DB</text>
+
+  <!-- Python Selenium to LinkedIn -->
+  <path d="M 1105 670 L 1105 725" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- Python Verifier to External Isolated Queue -->
+  <path d="M 1115 555 L 1115 800" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="3" marker-end="url(#arrowAmber)" />
+
+  <!-- Footer Info -->
+  <text x="50" y="920" font-size="12" fill="#64748b">Diagrama Arquitetural de Referência — Sistema Atualizado KiwiBot &amp; AIHawk — Persistência 100% SQLite &amp; Verificador de Candidaturas</text>
+  <text x="1220" y="920" font-size="12" font-weight="600" fill="#10b981">v2.0 Refatorada</text>
+</svg>

@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1550 1100" width="100%" height="100%" style="background:#0b1120; font-family:'Segoe UI', Inter, -apple-system, sans-serif;">
+  <defs>
+    <linearGradient id="classBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+    <marker id="arrowClass" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38bdf8" />
+    </marker>
+    <marker id="inherits" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+      <polygon points="0 0, 10 6, 0 12" fill="#0f172a" stroke="#10b981" stroke-width="2" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1550" height="1100" fill="url(#classBg)" />
+
+  <!-- Header -->
+  <rect x="50" y="20" width="1450" height="75" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5" filter="url(#shadow)" />
+  <circle cx="85" cy="57" r="20" fill="#38bdf8" />
+  <path d="M 75 57 L 95 57 M 85 47 L 85 67" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+  <text x="120" y="52" font-size="20" font-weight="700" fill="#f8fafc">DIAGRAMA UML DE CLASSES E COMPONENTES (ESTADO ATUALIZADO)</text>
+  <text x="120" y="74" font-size="13" fill="#94a3b8">Arquitetura Modular em Python &amp; Node.js • Camada de Dados Centralizada (DatabaseManager) • Verificador de Candidaturas</text>
+
+  <rect x="1230" y="40" width="250" height="34" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="1.2" />
+  <text x="1250" y="62" font-size="12" font-weight="600" fill="#34d399">ARQUITETURA MODULAR v2.0</text>
+
+  <!-- ================= PACKAGE 1: PYTHON AUTOMATION CORE (src/) ================= -->
+  <rect x="40" y="115" width="920" height="940" rx="14" fill="#0f172a" fill-opacity="0.7" stroke="#334155" stroke-width="1.5" stroke-dasharray="6" />
+  <rect x="60" y="102" width="260" height="26" rx="6" fill="#1e293b" stroke="#334155" />
+  <text x="75" y="120" font-size="12" font-weight="700" fill="#38bdf8">PACOTE PYTHON (src/ &amp; Scripts)</text>
+
+  <!-- CLASS: DatabaseManager (src/database.py) -->
+  <g transform="translate(60, 150)" filter="url(#shadow)">
+    <rect width="420" height="38" rx="8" fill="#059669" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">DatabaseManager (src/database.py)</text>
+    <rect y="38" width="420" height="420" fill="#1e293b" stroke="#059669" stroke-width="1.5" rx="0 0 8 8" />
+
+    <!-- Attributes -->
+    <text x="15" y="60" font-size="11" font-weight="700" fill="#34d399">ATRIBUTOS</text>
+    <text x="15" y="80" font-size="12" fill="#cbd5e1">- db_path: str = "dashboard/kiwibot.db"</text>
+    <text x="15" y="100" font-size="12" fill="#cbd5e1">- connection: sqlite3.Connection (WAL mode)</text>
+    <line x1="15" y1="112" x2="405" y2="112" stroke="#334155" stroke-width="1" />
+
+    <!-- Methods -->
+    <text x="15" y="132" font-size="11" font-weight="700" fill="#38bdf8">MÉTODOS PÚBLICOS</text>
+    <text x="15" y="152" font-size="12" fill="#f1f5f9">+ get_connection() -&gt; sqlite3.Connection</text>
+    <text x="15" y="172" font-size="12" fill="#f1f5f9">+ init_db() -&gt; None</text>
+    <text x="15" y="192" font-size="12" fill="#f1f5f9">+ upsert_company(name: str, ...) -&gt; str</text>
+    <text x="15" y="212" font-size="12" fill="#f1f5f9">+ is_job_registered(url: str) -&gt; bool</text>
+    <text x="15" y="232" font-size="12" fill="#f1f5f9">+ save_or_update_opportunity(data: dict) -&gt; str</text>
+    <text x="15" y="252" font-size="12" font-weight="700" fill="#fbbf24">+ isolate_external_unregistered(job: dict) -&gt; str</text>
+    <text x="15" y="272" font-size="12" fill="#f1f5f9">+ get_opportunities_to_verify() -&gt; List[dict]</text>
+    <text x="15" y="292" font-size="12" fill="#f1f5f9">+ update_job_status(id: str, stage: str, status: str) -&gt; None</text>
+    <text x="15" y="312" font-size="12" fill="#f1f5f9">+ add_activity(opp_id: str, event: str, desc: str) -&gt; str</text>
+    <text x="15" y="332" font-size="12" font-weight="700" fill="#34d399">+ purge_csv_files() -&gt; int  [ROTINA DE EXPURGO]</text>
+    <text x="15" y="352" font-size="12" fill="#f1f5f9">+ record_bot_run_start() -&gt; str</text>
+    <text x="15" y="372" font-size="12" fill="#f1f5f9">+ record_bot_run_finish(id, count, applied, status) -&gt; None</text>
+
+    <!-- Highlight: Elimination -->
+    <rect x="15" y="390" width="390" height="52" rx="6" fill="#0f172a" stroke="#10b981" />
+    <text x="25" y="410" font-size="11" font-weight="700" fill="#10b981">✓ Persistência 100% Direta no SQLite</text>
+    <text x="25" y="430" font-size="11" fill="#94a3b8">Substitui salvar_csv_seguro() e envios por e-mail</text>
+  </g>
+
+  <!-- CLASS: StatusVerifier (src/status_verifier.py) -->
+  <g transform="translate(510, 150)" filter="url(#shadow)">
+    <rect width="430" height="38" rx="8" fill="#d97706" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">StatusVerifier (src/status_verifier.py)</text>
+    <rect y="38" width="430" height="420" fill="#1e293b" stroke="#d97706" stroke-width="1.8" rx="0 0 8 8" />
+
+    <!-- Attributes -->
+    <text x="15" y="60" font-size="11" font-weight="700" fill="#fde68a">ATRIBUTOS</text>
+    <text x="15" y="80" font-size="12" fill="#cbd5e1">- driver: webdriver.Chrome</text>
+    <text x="15" y="100" font-size="12" fill="#cbd5e1">- db: DatabaseManager</text>
+    <text x="15" y="120" font-size="12" fill="#cbd5e1">- positions: List[str]</text>
+    <text x="15" y="140" font-size="12" fill="#cbd5e1">- locations: List[str]</text>
+    <line x1="15" y1="152" x2="415" y2="152" stroke="#334155" stroke-width="1" />
+
+    <!-- Methods -->
+    <text x="15" y="172" font-size="11" font-weight="700" fill="#fde68a">MÉTODOS PRINCIPAIS</text>
+    <text x="15" y="195" font-size="12" font-weight="700" fill="#fbbf24">+ is_external_link(url: str, card_element) -&gt; bool</text>
+    <text x="15" y="215" font-size="12" font-weight="700" fill="#fbbf24">+ process_external_link(url, company, title) -&gt; bool</text>
+    <text x="15" y="235" font-size="12" fill="#f1f5f9">+ verify_existing_applications() -&gt; dict</text>
+    <text x="15" y="255" font-size="12" fill="#f1f5f9">+ check_single_job_status(job_url: str) -&gt; str</text>
+    <text x="15" y="275" font-size="12" fill="#f1f5f9">+ scan_and_classify_search_results() -&gt; dict</text>
+    <text x="15" y="295" font-size="12" fill="#f1f5f9">+ run_verification_cycle() -&gt; None</text>
+
+    <!-- Specific Rule Container -->
+    <rect x="15" y="325" width="400" height="115" rx="6" fill="#0f172a" stroke="#f59e0b" stroke-width="1.2" />
+    <text x="25" y="348" font-size="11" font-weight="700" fill="#fbbf24">REGRA CRÍTICA DE CLASSIFICAÇÃO:</text>
+    <text x="25" y="370" font-size="11" fill="#cbd5e1">1. Se link for externo E NÃO constar no banco SQLite:</text>
+    <text x="25" y="390" font-size="11" font-weight="600" fill="#38bdf8">   ➔ Isola como: status='LINK_EXTERNO_NAO_CADASTRADO'</text>
+    <text x="25" y="410" font-size="11" font-weight="600" fill="#f8fafc">2. Interrompe fluxo de candidatura nessa vaga</text>
+    <text x="25" y="428" font-size="11" fill="#10b981">3. NÃO envia candidaturas indevidas</text>
+  </g>
+
+  <!-- CLASS: JobApplierBot (main.py) -->
+  <g transform="translate(60, 600)" filter="url(#shadow)">
+    <rect width="420" height="38" rx="8" fill="#0284c7" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">JobApplierBot (main.py)</text>
+    <rect y="38" width="420" height="230" fill="#1e293b" stroke="#0284c7" stroke-width="1.5" rx="0 0 8 8" />
+
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">- driver: webdriver.Chrome</text>
+    <text x="15" y="85" font-size="12" fill="#cbd5e1">- db: DatabaseManager</text>
+    <line x1="15" y1="98" x2="405" y2="98" stroke="#334155" stroke-width="1" />
+    <text x="15" y="120" font-size="12" fill="#f1f5f9">+ login_linkedin(driver, user, pass) -&gt; None</text>
+    <text x="15" y="140" font-size="12" fill="#f1f5f9">+ search_jobs(driver, positions, locations) -&gt; None</text>
+    <text x="15" y="160" font-size="12" fill="#f1f5f9">+ tentar_aplicar_sozinho(driver) -&gt; str</text>
+    <text x="15" y="180" font-size="12" font-weight="700" fill="#34d399">+ salvar_no_banco_sqlite() -&gt; None [DIRETO NO DB]</text>
+    <text x="15" y="200" font-size="12" font-weight="700" fill="#fbbf24">+ main() -&gt; None (Rotina com purge_csv_files() e sem email)</text>
+  </g>
+
+  <!-- CLASS: ChromeUtils (src/utils/chrome_utils.py) -->
+  <g transform="translate(510, 600)" filter="url(#shadow)">
+    <rect width="430" height="38" rx="8" fill="#7c3aed" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">ChromeUtils (src/utils/chrome_utils.py)</text>
+    <rect y="38" width="430" height="150" fill="#1e293b" stroke="#7c3aed" stroke-width="1.5" rx="0 0 8 8" />
+
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">+ chrome_browser_options() -&gt; Options</text>
+    <text x="15" y="90" font-size="12" fill="#cbd5e1">+ init_browser() -&gt; webdriver.Chrome</text>
+    <text x="15" y="115" font-size="12" fill="#cbd5e1">+ HTML_to_PDF(html_content, driver) -&gt; str</text>
+    <text x="15" y="140" font-size="11" fill="#94a3b8">Utiliza webdriver_manager para sincronizar ChromeDriver</text>
+  </g>
+
+  <!-- Entrypoints / CLI Runners -->
+  <g transform="translate(60, 860)" filter="url(#shadow)">
+    <rect width="880" height="170" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
+    <text x="20" y="28" font-size="13" font-weight="700" fill="#38bdf8">SCRIPTS ENTRYPOINTS DE EXECUÇÃO</text>
+    
+    <rect x="20" y="45" width="410" height="105" rx="6" fill="#0f172a" stroke="#0284c7" />
+    <text x="35" y="70" font-size="13" font-weight="700" fill="#38bdf8">executar_robo.bat / python main.py</text>
+    <text x="35" y="92" font-size="11" fill="#cbd5e1">• Fluxo padrão de busca e candidatura Easy Apply</text>
+    <text x="35" y="112" font-size="11" fill="#cbd5e1">• Persistência imediata no SQLite + Expurgo de CSVs</text>
+    <text x="35" y="132" font-size="11" fill="#10b981">✓ Sem envio de e-mails</text>
+
+    <rect x="450" y="45" width="410" height="105" rx="6" fill="#0f172a" stroke="#f59e0b" />
+    <text x="465" y="70" font-size="13" font-weight="700" fill="#fbbf24">verificar_candidaturas.py (NOVO)</text>
+    <text x="465" y="92" font-size="11" fill="#cbd5e1">• Fluxo passivo de checagem de status sem candidatar</text>
+    <text x="465" y="112" font-size="11" fill="#cbd5e1">• Isolamento de Links Externos Não Cadastrados</text>
+    <text x="465" y="132" font-size="11" fill="#fbbf24">✓ python main.py --mode verify</text>
+  </g>
+
+  <!-- ================= PACKAGE 2: NODE.JS DASHBOARD & API ================= -->
+  <rect x="1000" y="115" width="510" height="940" rx="14" fill="#0f172a" fill-opacity="0.7" stroke="#334155" stroke-width="1.5" stroke-dasharray="6" />
+  <rect x="1020" y="102" width="280" height="26" rx="6" fill="#1e293b" stroke="#334155" />
+  <text x="1035" y="120" font-size="12" font-weight="700" fill="#10b981">PACOTE DASHBOARD (Node.js &amp; UI)</text>
+
+  <!-- CLASS: DatabaseLayer (dashboard/db.js) -->
+  <g transform="translate(1020, 150)" filter="url(#shadow)">
+    <rect width="470" height="38" rx="8" fill="#059669" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">db.js (Camada SQLite Node 22)</text>
+    <rect y="38" width="470" height="300" fill="#1e293b" stroke="#059669" stroke-width="1.5" rx="0 0 8 8" />
+
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">- db: DatabaseSync (node:sqlite nativo)</text>
+    <line x1="15" y1="78" x2="455" y2="78" stroke="#334155" stroke-width="1" />
+    <text x="15" y="100" font-size="12" fill="#f1f5f9">+ getAllJobs() -&gt; Array&lt;Job&gt;</text>
+    <text x="15" y="120" font-size="12" fill="#f1f5f9">+ getStats() -&gt; Object</text>
+    <text x="15" y="140" font-size="12" fill="#f1f5f9">+ getRecentActivities(limit) -&gt; Array&lt;Activity&gt;</text>
+    <text x="15" y="160" font-size="12" fill="#f1f5f9">+ upsertOpportunity(opp) -&gt; String</text>
+    <text x="15" y="180" font-size="12" fill="#f1f5f9">+ updateOpportunityStage(id, stage) -&gt; Boolean</text>
+    <text x="15" y="200" font-size="12" fill="#f1f5f9">+ createUser / authenticateUser / createSession</text>
+
+    <rect x="15" y="225" width="440" height="90" rx="6" fill="#0f172a" stroke="#10b981" />
+    <text x="25" y="250" font-size="11" font-weight="700" fill="#10b981">MUDANÇA ARQUITETURAL REFATORADA:</text>
+    <text x="25" y="272" font-size="11" fill="#cbd5e1">✗ Dashboard sem sincronização por CSV; SQLite como fonte única</text>
+    <text x="25" y="292" font-size="11" fill="#34d399">✓ Operações puramente em memória e disco SQLite</text>
+  </g>
+
+  <!-- CLASS: BotRunner (dashboard/bot_runner.js) -->
+  <g transform="translate(1020, 480)" filter="url(#shadow)">
+    <rect width="470" height="38" rx="8" fill="#334155" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">BotRunner (dashboard/bot_runner.js)</text>
+    <rect y="38" width="470" height="230" fill="#1e293b" stroke="#334155" stroke-width="1.5" rx="0 0 8 8" />
+
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">- processHandle: ChildProcess</text>
+    <text x="15" y="85" font-size="12" fill="#cbd5e1">- logs: Array&lt;string&gt;</text>
+    <text x="15" y="105" font-size="12" fill="#cbd5e1">- status: 'idle'|'running'|'waiting_captcha'|'completed'</text>
+    <line x1="15" y1="118" x2="455" y2="118" stroke="#334155" stroke-width="1" />
+    <text x="15" y="140" font-size="12" fill="#f1f5f9">+ start(mode: 'apply'|'verify') -&gt; Object</text>
+    <text x="15" y="160" font-size="12" fill="#f1f5f9">+ getStatus() -&gt; Object</text>
+    <text x="15" y="180" font-size="12" fill="#f1f5f9">+ continue() -&gt; Object (Resolve Captcha no stdin)</text>
+    <text x="15" y="200" font-size="12" fill="#f1f5f9">+ stop() -&gt; Object</text>
+    <text x="15" y="220" font-size="12" fill="#f1f5f9">+ addLog(message) -&gt; void</text>
+  </g>
+
+  <!-- CLASS: Server (dashboard/server.js) -->
+  <g transform="translate(1020, 740)" filter="url(#shadow)">
+    <rect width="470" height="38" rx="8" fill="#0284c7" />
+    <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">Server (dashboard/server.js)</text>
+    <rect y="38" width="470" height="290" fill="#1e293b" stroke="#0284c7" stroke-width="1.5" rx="0 0 8 8" />
+
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">- port: Number = 3000</text>
+    <text x="15" y="85" font-size="12" fill="#cbd5e1">- botRunner: BotRunner</text>
+    <line x1="15" y1="98" x2="455" y2="98" stroke="#334155" stroke-width="1" />
+    <text x="15" y="120" font-size="12" fill="#f1f5f9">ROTAS REST DISPONIBILIZADAS:</text>
+    <text x="15" y="142" font-size="11" fill="#cbd5e1">• GET  /api/opportunities (com suporte a filtros)</text>
+    <text x="15" y="162" font-size="11" fill="#cbd5e1">• POST /api/opportunities/stage (movimentação Kanban)</text>
+    <text x="15" y="182" font-size="11" fill="#cbd5e1">• GET  /api/stats (indicadores e funil)</text>
+    <text x="15" y="202" font-size="11" fill="#cbd5e1">• POST /api/bot/start (modo candidatura)</text>
+    <text x="15" y="222" font-size="11" font-weight="700" fill="#fbbf24">• POST /api/bot/verify (novo: modo verificação)</text>
+    <text x="15" y="242" font-size="11" fill="#cbd5e1">• GET  /api/bot/status &amp; POST /api/bot/continue</text>
+    <text x="15" y="262" font-size="11" fill="#cbd5e1">• POST /api/refresh (atualização instantânea do DB)</text>
+  </g>
+
+  <!-- ================= ASSOCIATIONS / RELATIONS ================= -->
+  <!-- StatusVerifier uses DatabaseManager -->
+  <path d="M 510 260 L 480 260" fill="none" stroke="#f59e0b" stroke-width="2.5" marker-end="url(#arrowClass)" />
+  <text x="485" y="250" font-size="10" fill="#f59e0b">uses</text>
+
+  <!-- JobApplierBot uses DatabaseManager -->
+  <path d="M 270 600 L 270 570" fill="none" stroke="#059669" stroke-width="2.5" marker-end="url(#arrowClass)" />
+
+  <!-- StatusVerifier uses ChromeUtils -->
+  <path d="M 725 570 L 725 600" fill="none" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrowClass)" />
+
+  <!-- BotRunner spawns python modules -->
+  <path d="M 1020 540 L 940 540" fill="none" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4" marker-end="url(#arrowClass)" />
+  <text x="950" y="530" font-size="11" fill="#38bdf8">spawns</text>
+
+  <!-- Server uses BotRunner & db.js -->
+  <path d="M 1255 740 L 1255 710" fill="none" stroke="#0284c7" stroke-width="2" marker-end="url(#arrowClass)" />
+</svg>

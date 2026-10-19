@@ -9,18 +9,16 @@ if hasattr(sys.stdout, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
+
 import yaml
-import csv
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 from datetime import datetime
+from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from src.utils.chrome_utils import init_browser
+from src.database import db_manager
+from src.status_verifier import StatusVerifier, run_verifier_flow
 
 historico_vagas = []
 
@@ -40,140 +38,18 @@ def load_preferences():
         print(f"❌ Erro ao ler work_preferences.yaml: {e}")
         sys.exit(1)
 
-def enviar_relatorio_email(secrets):
-    print("\n📧 PREPARANDO ENVIO DE EMAIL...")
-    remetente = secrets.get("gmail_user")
-    senha = secrets.get("gmail_app_password")
-    destinatario = secrets.get("linkedin_username")
-    
-    if not remetente or not senha:
-        print("⚠️ Email não configurado. Pulando.")
-        return
-
-    arquivos_para_enviar = ["vagas_sucesso.csv", "vagas_pendentes.csv"]
-    arquivos_existentes = [f for f in arquivos_para_enviar if os.path.isfile(f)]
-    
-    if not arquivos_existentes:
-        return
-
-    msg = MIMEMultipart()
-    msg['From'] = remetente
-    msg['To'] = destinatario
-    msg['Subject'] = f"🤖 Relatório LinkedIn - {datetime.now().strftime('%d/%m')}"
-    
-    msg.attach(MIMEText("Segue em anexo o relatório das vagas processadas hoje.", 'plain'))
-
-    for arquivo in arquivos_existentes:
-        try:
-            with open(arquivo, "rb") as attachment:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(attachment.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f"attachment; filename= {arquivo}")
-            msg.attach(part)
-        except Exception: pass
-
+def is_external_url(url: str) -> bool:
+    """Verifica se a URL aponta para fora do domínio do LinkedIn."""
+    if not url:
+        return False
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(remetente, senha)
-        server.sendmail(remetente, destinatario, msg.as_string())
-        server.quit()
-        print(f"✅ Email enviado com sucesso!")
-    except Exception as e:
-        print(f"❌ Erro no email: {e}")
-
-def salvar_csv_seguro(nome_arquivo, dados):
-    if not dados: return 
-    cabecalho = ["Data/Hora", "Cargo", "Empresa", "Local", "Status", "Link da Vaga"]
-    arquivo_existe = os.path.isfile(nome_arquivo)
-    try:
-        with open(nome_arquivo, mode='a', newline='', encoding='utf-8-sig') as f:
-            escritor = csv.writer(f, delimiter=';')
-            if not arquivo_existe: escritor.writerow(cabecalho)
-            escritor.writerows(dados)
-        print(f"✅ Salvo em: {nome_arquivo}")
-    except PermissionError:
-        print(f"❌ ERRO: Feche o arquivo {nome_arquivo}!")
-    except Exception: pass
-
-def salvar_no_banco_sqlite(vagas):
-    if not vagas: return
-    db_path = os.path.join("dashboard", "kiwibot.db")
-    if not os.path.exists(db_path):
-        return
-    try:
-        import sqlite3
-        import secrets as pysecrets
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        now_iso = datetime.now().isoformat()
-        
-        for vaga in vagas:
-            data_hora, cargo, empresa, local, status_msg, url = vaga[0], vaga[1], vaga[2], vaga[3], vaga[4], vaga[5]
-            is_sucesso = "Sucesso" in status_msg or "Enviada" in status_msg
-            stage = "applied" if is_sucesso else "pending"
-            work_mode = "Remoto" if "remot" in (cargo + " " + local).lower() else "Presencial"
-            
-            cur.execute("SELECT id FROM companies WHERE LOWER(name) = LOWER(?)", (empresa,))
-            c_row = cur.fetchone()
-            if c_row:
-                cid = c_row[0]
-            else:
-                cid = pysecrets.token_hex(6)
-                cur.execute("INSERT INTO companies (id, name, website, linkedin, created_at, updated_at) VALUES (?, ?, '', '', ?, ?)",
-                            (cid, empresa, now_iso, now_iso))
-            
-            opp_id = None
-            if url:
-                cur.execute("SELECT id FROM opportunities WHERE url = ?", (url,))
-                opp_row = cur.fetchone()
-                if opp_row:
-                    opp_id = opp_row[0]
-                    cur.execute("""
-                        UPDATE opportunities
-                        SET stage = ?, original_status = ?, date_applied = COALESCE(date_applied, ?), updated_at = ?
-                        WHERE id = ?
-                    """, (stage, status_msg, data_hora if is_sucesso else None, now_iso, opp_id))
-            
-            if not opp_id:
-                opp_id = "bot_" + pysecrets.token_hex(6)
-                cur.execute("""
-                    INSERT INTO opportunities
-                    (id, title, company_id, company_name, location, work_mode, stage, url, date_added, date_applied, source, original_status, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (opp_id, cargo, cid, empresa, local, work_mode, stage, url, data_hora, data_hora if is_sucesso else None, "LinkedIn Bot (Easy Apply)", status_msg, "active", now_iso, now_iso))
-            
-            act_id = pysecrets.token_hex(8)
-            act_desc = f"Candidatura enviada via robô: {cargo} @ {empresa}" if is_sucesso else f"Vaga mapeada pelo robô: {cargo} @ {empresa}"
-            cur.execute("""
-                INSERT INTO activities (id, opportunity_id, event_type, prev_value, new_value, description, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (act_id, opp_id, "candidatura_enviada" if is_sucesso else "criacao", "", stage, act_desc, now_iso))
-            
-        conn.commit()
-        conn.close()
-        print(f"🗄️ {len(vagas)} vaga(s) sincronizada(s) no banco SQLite (kiwibot.db)!")
-    except Exception as e:
-        print(f"⚠️ Aviso ao salvar no banco SQLite: {e}")
-
-def processar_e_salvar_relatorios(secrets):
-    print("\n💾 SALVANDO ARQUIVOS...")
-    lista_sucesso = []
-    lista_pendentes = []
-    
-    for vaga in historico_vagas:
-        status = vaga[4]
-        if "Sucesso" in status or "Enviada" in status:
-            lista_sucesso.append(vaga)
-        else:
-            lista_pendentes.append(vaga)
-            
-    if lista_sucesso: salvar_csv_seguro("vagas_sucesso.csv", lista_sucesso)
-    if lista_pendentes: salvar_csv_seguro("vagas_pendentes.csv", lista_pendentes)
-    salvar_no_banco_sqlite(historico_vagas)
-    
-    enviar_relatorio_email(secrets)
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        if not netloc:
+            return False
+        return not any(netloc == domain or netloc.endswith('.' + domain) for domain in ['linkedin.com', 'www.linkedin.com', 'br.linkedin.com'])
+    except Exception:
+        return False
 
 def login_linkedin(driver, username, password):
     print("--- 🔑 FAZENDO LOGIN ---")
@@ -228,7 +104,7 @@ def login_linkedin(driver, username, password):
                 pass_field.send_keys(Keys.ENTER)
             print("✅ Dados enviados automaticamente.")
         else:
-            print(f"⚠️ Campos de login não visíveis. Por favor, faça login na janela do Chrome.")
+            print("⚠️ Campos de login não visíveis. Por favor, faça login na janela do Chrome.")
     except Exception as e:
         print(f"⚠️ Aviso no preenchimento: {e}. Por favor, faça login diretamente na janela do Chrome.")
 
@@ -244,8 +120,10 @@ def tentar_aplicar_sozinho(driver):
         if botoes_enviar:
             botoes_enviar[0].click()
             time.sleep(2)
-            try: driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
-            except: pass
+            try:
+                driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
+            except Exception:
+                pass
             return "Candidatura Enviada com Sucesso! ✅"
         else:
             # Se não achou enviar, fecha e marca como pendente
@@ -253,13 +131,17 @@ def tentar_aplicar_sozinho(driver):
                 driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
                 time.sleep(1)
                 driver.find_element(By.CSS_SELECTOR, "button[data-control-name='discard_application_confirm_btn']").click()
-            except: pass
+            except Exception:
+                pass
             return "Formulário complexo (Manual Necessário) ⚠️"
     except Exception as e:
         return f"Erro ao aplicar: {str(e)[:30]}"
 
 def search_jobs(driver, positions, locations):
     print("--- 🔎 BUSCANDO E APLICANDO ---")
+    total_encontradas = 0
+    total_enviadas = 0
+    status_verifier = StatusVerifier(db=db_manager)
     
     for cargo in positions:
         for local in locations:
@@ -269,85 +151,163 @@ def search_jobs(driver, positions, locations):
             time.sleep(5)
             
             try:
-                try: driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar']").click()
-                except: pass
+                try:
+                    driver.find_element(By.CSS_SELECTOR, "button[aria-label='Fechar'], button[aria-label='Dismiss']").click()
+                except Exception:
+                    pass
 
-                # Pega a lista de cartões de vagas
                 job_cards = driver.find_elements(By.CSS_SELECTOR, ".job-card-container")
-                print(f"   Encontrei {len(job_cards)} vagas.")
+                print(f"   Encontrei {len(job_cards)} vagas nesta busca.")
                 
                 for i, card in enumerate(job_cards):
                     try:
-                        # Rola até a vaga para ela ficar visível
                         driver.execute_script("arguments[0].scrollIntoView();", card)
                         
-                        # --- CORREÇÃO AQUI: PEGA O LINK ANTES DE CLICAR ---
                         try:
-                            # Procura o link dentro do cartão da vaga
                             link_elem = card.find_element(By.CSS_SELECTOR, "a.job-card-container__link")
-                            link_vaga = link_elem.get_attribute("href").split("?")[0] # Limpa o link
-                        except:
-                            # Se falhar, usa o link atual como fallback (mas o de cima deve funcionar)
+                            link_vaga = link_elem.get_attribute("href").split("?")[0]
+                        except Exception:
                             link_vaga = driver.current_url
 
-                        # Agora sim, clica para abrir os detalhes na direita
                         card.click()
                         time.sleep(2) 
                         
-                        try: titulo = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__job-title").text.strip()
-                        except: titulo = cargo
-                        try: empresa = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__company-name").text.strip()
-                        except: empresa = "Empresa X"
+                        try:
+                            titulo = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__job-title").text.strip()
+                        except Exception:
+                            titulo = cargo
+                        try:
+                            empresa = driver.find_element(By.CLASS_NAME, "job-details-jobs-unified-top-card__company-name").text.strip()
+                        except Exception:
+                            empresa = "Empresa"
                             
-                        status = "Link Externo"
-                        
                         # Procura o botão de aplicar
                         botoes = driver.find_elements(By.CLASS_NAME, "jobs-apply-button--top-card")
-                        
+                        if not botoes:
+                            botoes = driver.find_elements(By.CSS_SELECTOR, "button.jobs-apply-button")
+
+                        status = "Botão de candidatura não identificado"
+                        is_success = False
+                        external_apply_url = None
+
                         if botoes:
                             texto = botoes[0].text.lower()
                             if "candidatura simplificada" in texto or "easy apply" in texto:
                                 print(f"   👆 Tentando aplicar em: {titulo}")
                                 botoes[0].click()
                                 status = tentar_aplicar_sozinho(driver)
+                                is_success = ("Sucesso" in status or "Enviada" in status)
+                                if is_success:
+                                    total_enviadas += 1
                             else:
                                 status = "Link Externo (Não clicado)"
-                        
+                                external_apply_url = status_verifier.get_external_apply_url(driver, botoes[0])
+
+                        # ============================================================
+                        # FASE 2: FILTRO DE LINKS EXTERNOS
+                        # Se for link externo E NÃO estiver previamente cadastrado,
+                        # separa o registro como 'LINK_EXTERNO_NAO_CADASTRADO'
+                        # ============================================================
+                        if external_apply_url or "Link Externo" in status or is_external_url(link_vaga):
+                            external_url = external_apply_url or link_vaga
+                            already_in_db = db_manager.is_job_registered(external_url)
+                            if not already_in_db:
+                                print(f"   📦 [FILTRO EXTERNO] Separando vaga externa não cadastrada: {titulo} @ {empresa}")
+                                db_manager.isolate_external_unregistered(
+                                    title=titulo,
+                                    company=empresa,
+                                    location=local,
+                                    url=external_url
+                                )
+                                total_encontradas += 1
+                                continue
+                            print(f"   ℹ️ [FILTRO EXTERNO] Link já cadastrado; vaga mantida sem novo processamento: {titulo} @ {empresa}")
+                            continue
+
+                        # PERSISTÊNCIA DIRETA NO SQLITE (Substitui CSV)
+                        db_manager.save_or_update_opportunity(
+                            title=titulo,
+                            company=empresa,
+                            location=local,
+                            url=link_vaga,
+                            status_msg=status,
+                            is_success=is_success
+                        )
+
                         agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-                        print(f"   📝 {i+1}. {titulo} -> {status}")
+                        print(f"   📝 {i+1}. {titulo} -> {status} [Salvo no Banco SQLite]")
                         historico_vagas.append([agora, titulo, empresa, local, status, link_vaga])
+                        total_encontradas += 1
                         
                     except Exception as e:
-                        # Se der erro numa vaga, pula pra próxima
                         continue
                     
-                    time.sleep(1) # Respira antes da próxima vaga
+                    time.sleep(1)
                 
             except Exception as e:
                 print(f"   Erro na lista: {e}")
             
             time.sleep(3)
 
+    return total_encontradas, total_enviadas
+
 def main():
-    print("--- 🤖 ROBÔ FINAL CORRIGIDO ---")
-    secrets = load_secrets()
-    prefs = load_preferences()
-    email = secrets.get("linkedin_username")
-    password = secrets.get("linkedin_password")
-    positions = prefs.get("positions", ["Java Developer"])
-    locations = prefs.get("locations", ["Brazil"])
+    # Verifica se foi solicitado o modo de verificação de estado
+    if "--verify" in sys.argv or "--mode=verify" in sys.argv:
+        run_verifier_flow()
+        return
+
+    print("=" * 60)
+    print("🤖 AIHAWK / KIWIBOT - CANDIDATURAS AUTOMATIZADAS (v2.0)")
+    print("   Persistência Direta SQLite • Expurgo CSV • Sem E-mails")
+    print("=" * 60)
+
+    # 1. Rotina de expurgo inicial de arquivos CSV residuais
+    db_manager.purge_csv_files()
+    run_id = db_manager.record_bot_run_start()
+
+    total_encontradas = 0
+    total_enviadas = 0
+    status_final = "completed"
+    driver = None
 
     try:
+        secrets = load_secrets()
+        prefs = load_preferences()
+        email = secrets.get("linkedin_username")
+        password = secrets.get("linkedin_password")
+        positions = prefs.get("positions", ["Java Developer"])
+        locations = prefs.get("locations", ["Brazil"])
+
         driver = init_browser()
         login_linkedin(driver, email, password)
-        search_jobs(driver, positions, locations)
+        total_encontradas, total_enviadas = search_jobs(driver, positions, locations)
     except KeyboardInterrupt:
         print("\n🛑 Parado pelo usuário.")
+        status_final = "interrupted"
     except Exception as e:
         print(f"🚨 Erro: {e}")
+        status_final = "error"
     finally:
-        processar_e_salvar_relatorios(secrets)
-        print("\nFechando em 10 segundos...")
+        if driver:
+            try:
+                driver.quit()
+            except Exception as e:
+                print(f"⚠️ Erro ao fechar o navegador: {e}")
+
+        # 2. Rotina de expurgo obrigatória de arquivos CSV a cada término de processamento
+        db_manager.purge_csv_files()
+
+        # 3. Registra execução concluída no SQLite
+        db_manager.record_bot_run_finish(
+            run_id=run_id,
+            vagas=total_encontradas,
+            enviadas=total_enviadas,
+            status=status_final,
+            log_output=f"Execução finalizada com {total_encontradas} vagas processadas e {total_enviadas} candidaturas enviadas."
+        )
+        print(f"\n💾 Todas as informações foram gravadas DIRETAMENTE no banco SQLite (kiwibot.db).")
+        print("Fechando em 10 segundos...")
         time.sleep(10)
 
 if __name__ == "__main__":

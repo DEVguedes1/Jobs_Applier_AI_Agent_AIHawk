@@ -162,3 +162,16 @@ venv.bak/
 mono_crash.*
 
 job_applications/
+
+# Local runtime data; databases belong on the central server's persistent volume.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+dashboard/jobs_tracker.json
+dashboard/node_modules/
+dashboard/logs/
+dashboard/cache/
+dashboard/runtime/

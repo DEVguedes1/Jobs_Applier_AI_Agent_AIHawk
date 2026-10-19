@@ -30,9 +30,9 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
     return candidates.find(candidate => candidate && fs.existsSync(candidate)) || 'python';
   }
 
-  function finalizeRun(runId, runStatus, shouldSync) {
+  function finalizeRun(runId, runStatus, shouldSync, userId) {
     finishedAt = new Date().toISOString();
-    onRunFinished?.({ runId, finishedAt, status: runStatus, shouldSync });
+    onRunFinished?.({ runId, finishedAt, status: runStatus, shouldSync, userId });
   }
 
   return {
@@ -46,7 +46,7 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
         finishedAt
       };
     },
-    start() {
+    start(mode = 'apply', apiContext = {}) {
       if (processHandle) {
         try {
           process.kill(processHandle.pid, 0);
@@ -54,6 +54,10 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
         } catch (error) {
           processHandle = null;
         }
+      }
+
+      if (!apiContext.userId || !apiContext.sessionToken) {
+        return { success: false, statusCode: 401, error: 'Sessão inválida para iniciar o bot.' };
       }
 
       const pythonCommand = getPythonCommand();
@@ -66,19 +70,32 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
       const finishRun = (finalStatus, shouldSync) => {
         if (runFinalized) return;
         runFinalized = true;
-        finalizeRun(runId, finalStatus, shouldSync);
+        finalizeRun(runId, finalStatus, shouldSync, apiContext.userId);
       };
-      onRunStarted?.({ runId, startedAt });
-      addLog(`Iniciando o robô de candidaturas com: ${pythonCommand} -u main.py`);
+      onRunStarted?.({ runId, startedAt, userId: apiContext.userId });
+
+      const scriptArgs = mode === 'verify'
+        ? ['-u', 'verificar_candidaturas.py']
+        : ['-u', 'main.py'];
+      const actionName = mode === 'verify' ? 'Verificação de Estado & Links Externos' : 'Candidaturas Automatizadas (Easy Apply)';
+
+      addLog(`Iniciando o robô [${actionName}] com: ${pythonCommand} ${scriptArgs.join(' ')}`);
 
       try {
         const isDirectExe = pythonCommand.endsWith('.exe') || pythonCommand.includes('\\') || pythonCommand.includes('/');
 
-        // Ponto de entrada da execução: substitua este spawn ao migrar para fila, worker ou outro executor.
-        processHandle = spawn(pythonCommand, ['-u', 'main.py'], {
+        // Ponto de entrada da execução: persiste 100% diretamente no SQLite
+        processHandle = spawn(pythonCommand, scriptArgs, {
           cwd: rootDir,
           shell: !isDirectExe,
-          env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' }
+          env: {
+            ...process.env,
+            KIWI_API_URL: apiContext.apiUrl,
+            KIWI_SESSION_TOKEN: apiContext.sessionToken,
+            KIWI_BOT_RUN_ID: runId,
+            PYTHONUNBUFFERED: '1',
+            PYTHONIOENCODING: 'utf-8'
+          }
         });
 
         processHandle.stdout.on('data', data => {
@@ -105,10 +122,10 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
           addLog(`Execução finalizada com código ${code}.`);
           status = finalStatus;
           processHandle = null;
-          finishRun(finalStatus, true);
+          finishRun(finalStatus, false);
         });
 
-        return { success: true, message: 'Robô iniciado com sucesso!' };
+        return { success: true, message: `Robô iniciado com sucesso (${actionName})!` };
       } catch (error) {
         status = 'error';
         processHandle = null;

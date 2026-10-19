@@ -24,8 +24,8 @@ function isPortOpen(port) {
 
 function hasBuiltInSQLite() {
   try {
-    const builtin = require('node:module').builtinModules || [];
-    return builtin.includes('node:sqlite');
+    require('node:sqlite');
+    return true;
   } catch {
     return false;
   }
@@ -49,18 +49,16 @@ if (major < 18) {
   process.exit(1);
 }
 
-if (!betterSqlite) {
-  console.error('[dashboard] Dependência do dashboard ausente: better-sqlite3.');
-  console.error('[dashboard] Execute: npm install');
+if (!builtInSQLite && !betterSqlite) {
+  console.error('[dashboard] Dependência do dashboard ausente: instale Node 22 LTS (com node:sqlite) ou execute npm install better-sqlite3.');
   process.exit(1);
 }
 
-if (major < 22 || !builtInSQLite) {
-  console.warn('[dashboard] Atenção: o Node instalado não expõe node:sqlite nativamente.');
-  console.warn('[dashboard] O projeto usa fallback do SQLite e deve continuar funcionando, mas o ideal é usar Node 22 LTS ou superior.');
+if (builtInSQLite) {
+  console.log('[dashboard] Usando SQLite nativo (node:sqlite) do Node ' + process.versions.node);
+} else {
+  console.log('[dashboard] Usando driver better-sqlite3.');
 }
-
-console.log(`[dashboard] Node ${process.versions.node} detectado.`);
 
 (async () => {
   const portInUse = await isPortOpen(process.env.PORT || 3000);
