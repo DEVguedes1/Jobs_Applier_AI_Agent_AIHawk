@@ -85,34 +85,59 @@ class FakeDriver:
         confirm_submission=True,
         submit_error=False,
         navigation_error=False,
-        navigation_timeout=False,
+        results_delay_checks=0,
         page_load_timeout=False,
         remote_read_timeout=False,
+        new_search_layout=False,
     ):
         self.current_url = "https://www.linkedin.com/jobs/search/"
+        self.requested_urls = []
         self.details_open = False
         self.form_open = False
         self.apply_button_enabled = apply_button
         self.confirm_submission = confirm_submission
         self.submit_error = submit_error
         self.navigation_error = navigation_error
-        self.navigation_timeout = navigation_timeout
+        self.results_delay_checks = results_delay_checks
+        self.result_checks = 0
         self.page_load_timeout = page_load_timeout
         self.remote_read_timeout = remote_read_timeout
+        self.new_search_layout = new_search_layout
         self.cards = [FakeCard(url, self) for url in card_urls]
         self.required_field = (
             FakeElement(attributes={"required": "true", "value": required_value})
             if required_value is not None
             else None
         )
-        self.submit_button = FakeElement(on_click=self._submit)
+        self.submit_button = FakeElement(
+            attributes={"aria-label": "Submit application"},
+            on_click=self._submit,
+        )
+        self.next_button = FakeElement(
+            text="Continue",
+            attributes={"aria-label": "Continue"},
+            on_click=self._advance_step,
+        )
+        self.close_button = FakeElement(
+            attributes={"aria-label": "Dismiss"},
+            on_click=self._close_form,
+        )
         self.apply_button = FakeElement(text="Easy Apply", on_click=self._open_form)
         self.dialog = FakeElement()
         self.multi_step = multi_step
+        self.form_step = 0
         self.confirmation = FakeElement(text="Your application was sent")
 
     def _open_form(self):
         self.form_open = True
+        self.form_step = 0
+        self.submit_button.clicked = False
+
+    def _advance_step(self):
+        self.form_step += 1
+
+    def _close_form(self):
+        self.form_open = False
 
     def _submit(self):
         if self.submit_error:
@@ -121,7 +146,12 @@ class FakeDriver:
     def get(self, url):
         if self.navigation_error:
             raise WebDriverException("simulated navigation failure")
-        self.current_url = url
+        self.requested_urls.append(url)
+        self.current_url = (
+            "https://www.linkedin.com/jobs/search-results/?currentJobId=20"
+            if self.new_search_layout
+            else url
+        )
         if self.remote_read_timeout:
             raise ReadTimeoutError(None, "http://localhost:1234", "simulated ChromeDriver read timeout")
         if self.page_load_timeout:
@@ -132,13 +162,34 @@ class FakeDriver:
 
     def find_elements(self, by, selector):
         if (by, selector) == (By.CSS_SELECTOR, ".job-card-container"):
-            return [] if self.navigation_timeout else self.cards
+            self.result_checks += 1
+            if self.result_checks <= self.results_delay_checks:
+                return []
+            return [] if self.new_search_layout else self.cards
+        if (by, selector) == (By.CSS_SELECTOR, "li[data-occludable-job-id]"):
+            return self.cards if self.new_search_layout else []
+        if (by, selector) == (By.CSS_SELECTOR, ".scaffold-layout__list"):
+            return [FakeElement()] if self.new_search_layout else []
         if by == By.TAG_NAME and selector == "body":
-            text = "No matching jobs found" if not self.cards and not self.navigation_timeout else ""
+            results_loaded = self.result_checks > self.results_delay_checks
+            text = "No matching jobs found" if not self.cards and results_loaded else ""
             return [FakeElement(text=text)]
         if by == By.CLASS_NAME and selector == "job-details-jobs-unified-top-card__job-title":
             return [FakeElement(text="Junior Developer")] if self.details_open else []
         if by == By.CLASS_NAME and selector == "job-details-jobs-unified-top-card__company-name":
+            return [FakeElement(text="Example Co")] if self.details_open else []
+        if by == By.CSS_SELECTOR and selector in (
+            ".job-details-jobs-unified-top-card__job-title",
+            ".jobs-unified-top-card__job-title",
+            "[data-test-job-title]",
+            "main h1",
+        ):
+            return [FakeElement(text="Junior Developer")] if self.details_open else []
+        if by == By.CSS_SELECTOR and selector in (
+            ".job-details-jobs-unified-top-card__company-name",
+            ".jobs-unified-top-card__company-name",
+            "[data-test-job-company-name]",
+        ):
             return [FakeElement(text="Example Co")] if self.details_open else []
         if by == By.CLASS_NAME and selector == "jobs-apply-button--top-card":
             return [self.apply_button] if self.details_open and self.apply_button_enabled else []
@@ -159,14 +210,29 @@ class FakeDriver:
         return elements[0]
 
     def _dialog_elements(self, by, selector):
+        if by == By.CSS_SELECTOR and selector == (
+            "button[aria-label='Dismiss'], button[aria-label='Close'], "
+            "button[aria-label='Fechar'], button[data-test-modal-close-btn]"
+        ):
+            return [self.close_button] if self.form_open else []
         if by == By.CSS_SELECTOR and selector.startswith("button[aria-label="):
-            return [self.submit_button] if self.form_open else []
+            is_final_step = not self.multi_step or self.form_step > 0
+            return [self.submit_button] if self.form_open and is_final_step else []
         if by == By.CSS_SELECTOR and "input[required]" in selector:
             return [self.required_field] if self.form_open and self.required_field else []
+        if by == By.XPATH and selector == ".//button":
+            if not self.form_open:
+                return []
+            if self.multi_step and self.form_step == 0:
+                return [self.next_button]
+            return [self.submit_button]
         if by == By.XPATH and "Submit application" in selector:
-            return []
+            is_final_step = not self.multi_step or self.form_step > 0
+            return [self.submit_button] if self.form_open and is_final_step else []
         if by == By.XPATH and "Avançar" in selector:
-            return [FakeElement(text="Continue")] if self.form_open and self.multi_step else []
+            return [
+                self.next_button
+            ] if self.form_open and self.multi_step and self.form_step == 0 else []
         return []
 
 
@@ -223,15 +289,29 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertIn("Vaga duplicada nesta execução", output)
         self.assertEqual(len(database.saved), 1)
 
-    def test_multistep_form_is_left_for_manual_review(self):
+    def test_search_continues_after_successful_application(self):
+        database = FakeDatabase()
+        driver = FakeDriver(
+            card_urls=[
+                "https://www.linkedin.com/jobs/view/20",
+                "https://www.linkedin.com/jobs/view/21",
+            ]
+        )
+        result, output = self.run_search(driver, database)
+        self.assertEqual(result, (2, 2))
+        self.assertEqual(len(database.saved), 2)
+        self.assertIn("Confirmadas: 2", output)
+        self.assertFalse(driver.form_open)
+
+    def test_multistep_form_advances_and_submits_when_required_fields_are_complete(self):
         driver = FakeDriver(multi_step=True)
         driver.form_open = True
         configure_dialog(driver)
         with patch.object(main, "WebDriverWait", ImmediateWait):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
-        self.assertIn("várias etapas", status)
-        self.assertFalse(confirmed)
-        self.assertFalse(driver.submit_button.clicked)
+        self.assertIn("Enviada e confirmada", status)
+        self.assertTrue(confirmed)
+        self.assertTrue(driver.submit_button.clicked)
 
     def test_easy_apply_modal_timeout_is_reported(self):
         driver = FakeDriver()
@@ -241,7 +321,7 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertIn("não abriu dentro do tempo limite", status)
         self.assertFalse(confirmed)
 
-    def test_search_stops_after_manual_form_instead_of_using_next_job(self):
+    def test_unanswered_multistep_application_stays_pending_and_search_continues(self):
         database = FakeDatabase()
         driver = FakeDriver(
             card_urls=[
@@ -249,12 +329,16 @@ class ApplicationFlowTests(unittest.TestCase):
                 "https://www.linkedin.com/jobs/view/9",
             ],
             multi_step=True,
+            required_value="",
         )
         result, output = self.run_search(driver, database)
         self.assertEqual(result, (2, 0))
-        self.assertIn("Busca pausada", output)
-        self.assertEqual(len(database.saved), 1)
+        self.assertIn("campos obrigatórios sem resposta", output)
+        self.assertIn("continuando a busca", output)
+        self.assertEqual(len(database.saved), 2)
+        self.assertTrue(all(not saved[1]["is_success"] for saved in database.saved))
         self.assertFalse(driver.submit_button.clicked)
+        self.assertFalse(driver.form_open)
 
     def test_unanswered_required_field_is_not_submitted(self):
         driver = FakeDriver(required_value="")
@@ -266,12 +350,15 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertFalse(confirmed)
         self.assertFalse(driver.submit_button.clicked)
 
-    def test_search_navigation_timeout_is_counted(self):
-        driver = FakeDriver(navigation_timeout=True)
+    def test_search_waits_for_delayed_results_without_fixed_timeout(self):
+        driver = FakeDriver(
+            card_urls=["https://www.linkedin.com/jobs/view/23"],
+            results_delay_checks=35,
+        )
         result, output = self.run_search(driver)
-        self.assertEqual(result, (0, 0))
-        self.assertIn("Busca não carregou resultados a tempo", output)
-        self.assertIn("Falhas: 1", output)
+        self.assertEqual(result, (1, 1))
+        self.assertIn("sem limite fixo de tempo", output)
+        self.assertGreater(driver.result_checks, 30)
 
     def test_results_are_processed_when_only_full_page_load_times_out(self):
         driver = FakeDriver(
@@ -281,6 +368,44 @@ class ApplicationFlowTests(unittest.TestCase):
         result, output = self.run_search(driver)
         self.assertEqual(result, (1, 1))
         self.assertIn("verificando se os resultados já estão disponíveis", output)
+
+    def test_search_results_route_with_updated_list_markup_is_processed(self):
+        driver = FakeDriver(
+            card_urls=["https://www.linkedin.com/jobs/view/22"],
+            new_search_layout=True,
+        )
+        result, output = self.run_search(driver)
+        self.assertEqual(result, (1, 1))
+        self.assertIn("Vaga elegível", output)
+        self.assertIn("location=Remote", driver.requested_urls[0])
+        self.assertIn("keywords=Junior+Developer", driver.requested_urls[0])
+        self.assertNotIn("f_AL=", driver.requested_urls[0])
+
+    def test_search_reads_job_link_from_updated_card_anchor(self):
+        driver = FakeDriver(
+            card_urls=["https://www.linkedin.com/jobs/view/24"],
+            new_search_layout=True,
+        )
+        card = driver.cards[0]
+        card.children[(By.CSS_SELECTOR, "a.job-card-container__link")] = []
+        card.children[(By.CSS_SELECTOR, "a[href*='/jobs/view/']")] = [
+            FakeElement(attributes={"href": "https://www.linkedin.com/jobs/view/24/?tracking=search"})
+        ]
+        result, output = self.run_search(driver)
+        self.assertEqual(result, (1, 1))
+        self.assertIn("Vaga elegível", output)
+
+    def test_search_builds_job_link_from_updated_card_id(self):
+        driver = FakeDriver(
+            card_urls=["https://www.linkedin.com/jobs/view/25"],
+            new_search_layout=True,
+        )
+        card = driver.cards[0]
+        card.attributes["data-occludable-job-id"] = "urn:li:jobPosting:25"
+        card.children[(By.CSS_SELECTOR, "a.job-card-container__link")] = []
+        result, output = self.run_search(driver)
+        self.assertEqual(result, (1, 1))
+        self.assertIn("Vaga elegível", output)
 
     def test_chromedriver_read_timeout_stops_further_searches(self):
         driver = FakeDriver(remote_read_timeout=True)

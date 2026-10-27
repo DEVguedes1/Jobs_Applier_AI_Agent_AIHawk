@@ -178,56 +178,154 @@ def _application_confirmation_visible(driver):
     return False
 
 
-def tentar_aplicar_sozinho(driver, timeout=10):
+def _visible_application_dialog(driver):
+    return next(
+        (
+            element for element in driver.find_elements(
+                By.CSS_SELECTOR, "div[role='dialog'], .jobs-easy-apply-content"
+            )
+            if element.is_displayed()
+        ),
+        False,
+    )
+
+
+def _application_form_signature(dialog):
+    button_labels = tuple(
+        (button.get_attribute("aria-label") or button.text or "").strip()
+        for button in _visible_elements(dialog, By.XPATH, ".//button")
+    )
+    return (dialog.text or "", button_labels)
+
+
+def _application_form_changed(driver, previous_signature):
+    if _application_confirmation_visible(driver):
+        return True
+    dialog = _visible_application_dialog(driver)
+    return bool(dialog and _application_form_signature(dialog) != previous_signature)
+
+
+def _visible_discard_button(driver):
+    return next(
+        (
+            button for button in driver.find_elements(
+                By.XPATH,
+                "//button[normalize-space()='Descartar' or normalize-space()='Discard' "
+                "or normalize-space()='Descartar candidatura' "
+                "or normalize-space()='Discard application']"
+            )
+            if button.is_displayed()
+        ),
+        False,
+    )
+
+
+def _close_application_dialog(driver, timeout=5):
+    dialog = _visible_application_dialog(driver)
+    if not dialog:
+        return True
+
+    done_buttons = _visible_elements(
+        dialog,
+        By.XPATH,
+        ".//button[normalize-space()='Done' or normalize-space()='Concluído' "
+        "or normalize-space()='Fechar']"
+    )
+    close_buttons = _visible_elements(
+        dialog,
+        By.CSS_SELECTOR,
+        "button[aria-label='Dismiss'], button[aria-label='Close'], "
+        "button[aria-label='Fechar'], button[data-test-modal-close-btn]"
+    )
+    action_buttons = done_buttons or close_buttons
+    if not action_buttons:
+        return False
+
+    action_buttons[0].click()
     try:
-        dialog = WebDriverWait(driver, timeout).until(
-            lambda current_driver: next(
-                (
-                    element for element in current_driver.find_elements(
-                        By.CSS_SELECTOR, "div[role='dialog'], .jobs-easy-apply-content"
-                    )
-                    if element.is_displayed()
-                ),
-                False,
+        WebDriverWait(driver, timeout).until(
+            lambda current_driver: (
+                not _visible_application_dialog(current_driver)
+                or _visible_discard_button(current_driver)
             )
         )
+    except TimeoutException:
+        return False
+
+    discard_button = _visible_discard_button(driver)
+    if discard_button:
+        discard_button.click()
+        try:
+            WebDriverWait(driver, timeout).until(
+                lambda current_driver: not _visible_application_dialog(current_driver)
+            )
+        except TimeoutException:
+            return False
+
+    return not _visible_application_dialog(driver)
+
+
+def tentar_aplicar_sozinho(driver, timeout=10):
+    try:
+        WebDriverWait(driver, timeout).until(_visible_application_dialog)
     except TimeoutException:
         return "Falhou: formulário Easy Apply não abriu dentro do tempo limite.", False
 
     try:
-        next_buttons = _visible_elements(
-            dialog,
-            By.XPATH,
-            ".//button[normalize-space()='Avançar' or normalize-space()='Continuar' "
-            "or normalize-space()='Próxima' or normalize-space()='Next' "
-            "or normalize-space()='Continue' or normalize-space()='Review']"
-        )
-        if next_buttons:
-            return "Ignorada: formulário de várias etapas exige revisão/respostas manuais.", False
+        for _ in range(10):
+            dialog = _visible_application_dialog(driver)
+            if not dialog:
+                return "Falhou: formulário Easy Apply foi fechado antes da confirmação.", False
 
-        submit_buttons = _visible_elements(
-            dialog,
-            By.CSS_SELECTOR,
-            "button[aria-label='Enviar candidatura'], button[aria-label='Submit application']"
-        )
-        if not submit_buttons:
-            submit_buttons = _visible_elements(
+            next_buttons = _visible_elements(
                 dialog,
                 By.XPATH,
-                ".//button[normalize-space()='Enviar candidatura' or normalize-space()='Submit application']"
+                ".//button[normalize-space()='Avançar' or normalize-space()='Continuar' "
+                "or normalize-space()='Próxima' or normalize-space()='Next' "
+                "or normalize-space()='Continue' or normalize-space()='Review']"
             )
 
-        if not submit_buttons:
-            return "Falhou: botão de envio não encontrado no formulário.", False
+            submit_buttons = _visible_elements(
+                dialog,
+                By.CSS_SELECTOR,
+                "button[aria-label='Enviar candidatura'], button[aria-label='Submit application']"
+            )
+            if not submit_buttons:
+                submit_buttons = _visible_elements(
+                    dialog,
+                    By.XPATH,
+                    ".//button[normalize-space()='Enviar candidatura' "
+                    "or normalize-space()='Submit application']"
+                )
 
-        if not _required_fields_are_complete(dialog):
-            return "Ignorada: há campos obrigatórios sem resposta confiável.", False
+            if not _required_fields_are_complete(dialog):
+                return "Ignorada: há campos obrigatórios sem resposta confiável.", False
 
-        submit_buttons[0].click()
-        WebDriverWait(driver, timeout).until(_application_confirmation_visible)
-        return "Enviada e confirmada pela interface do LinkedIn.", True
-    except TimeoutException:
-        return "Falhou: a interface não confirmou o envio após a tentativa.", False
+            if submit_buttons and not next_buttons:
+                submit_buttons[0].click()
+                try:
+                    WebDriverWait(driver, timeout).until(_application_confirmation_visible)
+                except TimeoutException:
+                    return "Falhou: a interface não confirmou o envio após a tentativa.", False
+                return "Enviada e confirmada pela interface do LinkedIn.", True
+
+            if not next_buttons:
+                return "Falhou: botão de avanço ou envio não encontrado no formulário.", False
+
+            previous_signature = _application_form_signature(dialog)
+            next_buttons[0].click()
+            try:
+                WebDriverWait(driver, timeout).until(
+                    lambda current_driver: _application_form_changed(
+                        current_driver, previous_signature
+                    )
+                )
+            except TimeoutException:
+                return "Falhou: a interface não avançou para a próxima etapa.", False
+            if _application_confirmation_visible(driver):
+                return "Enviada e confirmada pela interface do LinkedIn.", True
+
+        return "Ignorada: formulário excedeu o limite de 10 etapas; vaga mantida pendente.", False
     except (StaleElementReferenceException, WebDriverException) as error:
         return f"Falhou durante o envio: {type(error).__name__}: {error}", False
 
@@ -236,8 +334,86 @@ def _canonical_job_url(url):
     return (url or "").split("?", 1)[0].rstrip("/")
 
 
+def _job_card_url(card):
+    for attribute in ("href", "data-job-url", "data-apply-url"):
+        value = card.get_attribute(attribute)
+        if value and "/jobs/view/" in value:
+            return _canonical_job_url(value)
+
+    for selector in (
+        "a.job-card-container__link",
+        "a[href*='/jobs/view/']",
+        "a[data-control-name='job_card_click']",
+        "a.job-card-list__title--link",
+    ):
+        for link in card.find_elements(By.CSS_SELECTOR, selector):
+            href = link.get_attribute("href")
+            if href and "/jobs/view/" in href:
+                return _canonical_job_url(href)
+
+    for attribute in ("data-occludable-job-id", "data-job-id"):
+        job_id = (card.get_attribute(attribute) or "").strip()
+        if job_id:
+            job_id = job_id.rsplit(":", 1)[-1]
+            if job_id.isdigit():
+                return f"https://www.linkedin.com/jobs/view/{job_id}"
+
+    return ""
+
+
+def _find_job_cards(driver):
+    for selector in (
+        ".job-card-container",
+        "li.jobs-search-results__list-item",
+        "li[data-occludable-job-id]",
+        "div[data-job-id]",
+        "a[href*='/jobs/view/']",
+    ):
+        cards = driver.find_elements(By.CSS_SELECTOR, selector)
+        if cards:
+            return cards
+    return []
+
+
+def _job_results_container_visible(driver):
+    for selector in (
+        ".jobs-search-results-list",
+        ".jobs-search-results-list__list",
+        ".jobs-search-results__list",
+        ".scaffold-layout__list",
+    ):
+        if driver.find_elements(By.CSS_SELECTOR, selector):
+            return True
+    return False
+
+
+def _visible_job_title(driver):
+    for selector in (
+        ".job-details-jobs-unified-top-card__job-title",
+        ".jobs-unified-top-card__job-title",
+        "[data-test-job-title]",
+        "main h1",
+    ):
+        for element in driver.find_elements(By.CSS_SELECTOR, selector):
+            if element.is_displayed() and (element.text or "").strip():
+                return element
+    return False
+
+
+def _visible_job_company(driver):
+    for selector in (
+        ".job-details-jobs-unified-top-card__company-name",
+        ".jobs-unified-top-card__company-name",
+        "[data-test-job-company-name]",
+    ):
+        for element in driver.find_elements(By.CSS_SELECTOR, selector):
+            if element.is_displayed() and (element.text or "").strip():
+                return element
+    return False
+
+
 def _job_results_ready(driver):
-    if driver.find_elements(By.CSS_SELECTOR, ".job-card-container"):
+    if _find_job_cards(driver) or _job_results_container_visible(driver):
         return True
     current_url = driver.current_url.lower()
     if "/login" in current_url or "/checkpoint" in current_url:
@@ -247,8 +423,14 @@ def _job_results_ready(driver):
     except WebDriverException:
         return False
     return any(message in body_text for message in (
-        "nenhuma vaga", "não encontramos", "no matching jobs", "no jobs found"
+        "nenhuma vaga", "não encontramos", "não há vagas", "não há resultados",
+        "no matching jobs", "no jobs found", "no results found"
     ))
+
+
+def _wait_for_job_results(driver):
+    while not _job_results_ready(driver):
+        time.sleep(1)
 
 
 def search_jobs(driver, positions, locations, db=None):
@@ -259,8 +441,8 @@ def search_jobs(driver, positions, locations, db=None):
     status_verifier = StatusVerifier(db=db)
     seen_urls = set()
     stats = {"elegiveis": 0, "em_andamento": 0, "ignoradas": 0, "falhas": 0, "duplicadas": 0}
-    stop_for_manual_review = False
     stop_after_driver_timeout = False
+    stop_after_unclosed_application = False
     
     for cargo in positions:
         for local in locations:
@@ -268,7 +450,6 @@ def search_jobs(driver, positions, locations, db=None):
             url = "https://www.linkedin.com/jobs/search/?" + urlencode({
                 "keywords": cargo,
                 "location": local,
-                "f_AL": "true",
             })
 
             try:
@@ -286,12 +467,9 @@ def search_jobs(driver, positions, locations, db=None):
                 stats["falhas"] += 1
                 continue
 
+            print("   ⏳ Aguardando resultados da busca (sem limite fixo de tempo)...")
             try:
-                WebDriverWait(driver, 15).until(_job_results_ready)
-            except TimeoutException:
-                print(f"   ⏱️ Busca não carregou resultados a tempo: {driver.current_url}")
-                stats["falhas"] += 1
-                continue
+                _wait_for_job_results(driver)
             except ReadTimeoutError as error:
                 print(f"   ❌ ChromeDriver não respondeu enquanto aguardava resultados: {error}")
                 print("   ⏹️ Busca interrompida para evitar repetir comandos em um navegador sem resposta.")
@@ -307,7 +485,7 @@ def search_jobs(driver, positions, locations, db=None):
                 raise RuntimeError("Sessão do LinkedIn não autenticada durante a busca.")
 
             try:
-                job_cards = driver.find_elements(By.CSS_SELECTOR, ".job-card-container")
+                job_cards = _find_job_cards(driver)
                 print(f"   Encontrei {len(job_cards)} vagas nesta busca.")
                 total_encontradas += len(job_cards)
                 if not job_cards:
@@ -319,11 +497,13 @@ def search_jobs(driver, positions, locations, db=None):
                     empresa = "Empresa não identificada"
                     link_vaga = ""
                     try:
-                        link_elem = card.find_element(By.CSS_SELECTOR, "a.job-card-container__link")
-                        link_vaga = _canonical_job_url(link_elem.get_attribute("href"))
+                        link_vaga = _job_card_url(card)
                         if not link_vaga:
                             stats["ignoradas"] += 1
-                            print(f"   ⏭️ Vaga {i + 1} ignorada: link não identificado.")
+                            print(
+                                f"   ⏭️ Vaga {i + 1} ignorada: link/ID não identificado; "
+                                "não será possível registrar candidatura."
+                            )
                             continue
                         if link_vaga in seen_urls:
                             stats["duplicadas"] += 1
@@ -333,19 +513,11 @@ def search_jobs(driver, positions, locations, db=None):
 
                         driver.execute_script("arguments[0].scrollIntoView();", card)
                         card.click()
-                        WebDriverWait(driver, 10).until(
-                            lambda current_driver: current_driver.find_elements(
-                                By.CLASS_NAME, "job-details-jobs-unified-top-card__job-title"
-                            )
-                        )
-                        titulo = driver.find_element(
-                            By.CLASS_NAME, "job-details-jobs-unified-top-card__job-title"
-                        ).text.strip()
-                        company_elements = driver.find_elements(
-                            By.CLASS_NAME, "job-details-jobs-unified-top-card__company-name"
-                        )
-                        if company_elements:
-                            empresa = company_elements[0].text.strip() or empresa
+                        title_element = WebDriverWait(driver, 10).until(_visible_job_title)
+                        titulo = title_element.text.strip()
+                        company_element = _visible_job_company(driver)
+                        if company_element:
+                            empresa = company_element.text.strip() or empresa
 
                         button_info = status_verifier.detect_apply_button_type(driver)
                         if button_info["type"] == "already_applied":
@@ -411,6 +583,9 @@ def search_jobs(driver, positions, locations, db=None):
                         stats["em_andamento"] += 1
                         apply_buttons[0].click()
                         status, is_success = tentar_aplicar_sozinho(driver)
+                        if not _close_application_dialog(driver):
+                            status += " Não foi possível fechar o formulário para continuar."
+                            stop_after_unclosed_application = True
                         if is_success:
                             total_enviadas += 1
                             print(f"   ✅ Candidatura enviada e confirmada: {titulo} @ {empresa}")
@@ -419,7 +594,7 @@ def search_jobs(driver, positions, locations, db=None):
                             print(f"   ❌ {status}")
                         else:
                             stats["ignoradas"] += 1
-                            print(f"   ⏭️ {status}")
+                            print(f"   ⏭️ {status} A vaga ficará pendente; continuando a busca.")
 
                         db.save_or_update_opportunity(
                             title=titulo,
@@ -433,13 +608,6 @@ def search_jobs(driver, positions, locations, db=None):
                             datetime.now().strftime("%d/%m/%Y %H:%M"),
                             titulo, empresa, local, status, link_vaga
                         ])
-                        if status.startswith("Ignorada: formulário") or status.startswith(
-                            "Ignorada: há campos obrigatórios"
-                        ):
-                            print("⏸️ Busca pausada para não interagir com o formulário sem respostas confiáveis.")
-                            stop_for_manual_review = True
-                            break
-
                     except StaleElementReferenceException as error:
                         stats["falhas"] += 1
                         print(f"   ❌ Vaga {i + 1} mudou durante a leitura; ignorada: {error}")
@@ -458,6 +626,8 @@ def search_jobs(driver, positions, locations, db=None):
                         raise
 
                     time.sleep(1)
+                    if stop_after_unclosed_application:
+                        break
 
             except (StaleElementReferenceException, WebDriverException) as error:
                 print(f"   ❌ Falha Selenium na lista de vagas: {type(error).__name__}: {error}")
@@ -466,7 +636,7 @@ def search_jobs(driver, positions, locations, db=None):
                 print(f"   ❌ Falha inesperada ao processar lista de vagas: {type(error).__name__}: {error}")
                 raise
 
-            if stop_for_manual_review or stop_after_driver_timeout:
+            if stop_after_driver_timeout or stop_after_unclosed_application:
                 break
             time.sleep(1)
 
