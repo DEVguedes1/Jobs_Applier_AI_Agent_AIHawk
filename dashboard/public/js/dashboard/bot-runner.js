@@ -182,7 +182,7 @@ async function pollBotStatus() {
       dom.btnBotStop.classList.remove('hidden');
       dom.botCaptchaAlert.classList.remove('hidden');
     } else if (currentStatus === 'completed') {
-      badge.textContent = 'Finalizado com Sucesso';
+      badge.textContent = 'Execução concluída';
       badge.style.backgroundColor = 'var(--status-offer-bg)';
       badge.style.color = 'var(--kiwi-primary-light)';
       dom.btnBotStart.classList.remove('hidden');
@@ -215,7 +215,8 @@ async function pollBotStatus() {
         let color = 'var(--text-secondary)';
         if (line.includes('[ERRO]') || line.includes('Error') || line.includes('Erro')) color = 'var(--text-muted)';
         else if (line.includes('PAUSA') || line.includes('Aperte ENTER')) color = 'var(--kiwi-primary-light)';
-        else if (line.includes('✅') || line.includes('sucesso') || line.includes('Candidatura')) color = 'var(--kiwi-primary-light)';
+        else if (line.includes('Falhou') || line.includes('❌')) color = 'var(--color-danger-subtle)';
+        else if (line.includes('✅') || line.includes('enviada e confirmada')) color = 'var(--kiwi-primary-light)';
         return `<div class="terminal-line" style="color: ${color};">${escapeHtml(line)}</div>`;
       }).join('');
       dom.botTerminalLogs.scrollTop = dom.botTerminalLogs.scrollHeight;
@@ -223,7 +224,7 @@ async function pollBotStatus() {
 
     // Atualização automática ao finalizar
     if (lastBotStatus !== 'completed' && currentStatus === 'completed') {
-      showToast('Robô finalizado! Atualizando dados do painel...', 'success');
+      showToast('Execução concluída. Confira no terminal quantas candidaturas foram confirmadas.', 'info');
       await loadData();
     }
 

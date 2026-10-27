@@ -10,6 +10,7 @@ from src.logging import logger
 def chrome_browser_options():
     logger.debug("Setting Chrome browser options")
     options = Options()
+    options.page_load_strategy = "eager"
     options.add_argument("--start-maximized")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -40,6 +41,7 @@ def init_browser() -> webdriver.Chrome:
         options = chrome_browser_options()
         # Use webdriver_manager to handle ChromeDriver
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=options)
+        driver.set_page_load_timeout(45)
         logger.debug("Chrome browser initialized successfully.")
         return driver
     except Exception as e:

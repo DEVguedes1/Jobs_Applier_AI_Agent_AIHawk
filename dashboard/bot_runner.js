@@ -20,6 +20,8 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
   function getPythonCommand() {
     if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) return process.env.PYTHON_PATH;
     const candidates = [
+      path.join(rootDir, '.venv', 'bin', 'python'),
+      path.join(rootDir, 'venv', 'bin', 'python'),
       path.join(rootDir, 'venv', 'Scripts', 'python.exe'),
       path.join(rootDir, '.venv', 'Scripts', 'python.exe'),
       path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
@@ -102,7 +104,7 @@ function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
           const lines = data.toString('utf-8').split(/\r?\n/).filter(line => line.trim());
           for (const line of lines) {
             addLog(line);
-            if (line.includes('PAUSA: Resolva Captcha') || line.includes('Aperte ENTER')) status = 'waiting_captcha';
+            if (line.includes('PAUSA:') || line.includes('Aperte ENTER')) status = 'waiting_captcha';
           }
         });
 
