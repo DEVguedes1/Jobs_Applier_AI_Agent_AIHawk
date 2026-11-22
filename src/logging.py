@@ -1,4 +1,4 @@
-"""Shared timestamped, rotating and redacted Python/Selenium logging."""
+"""Shared timestamped, rotating and redacted Python/Playwright logging."""
 
 import logging
 import logging.handlers
@@ -9,7 +9,6 @@ import traceback
 from pathlib import Path
 
 from loguru import logger
-from selenium.webdriver.remote.remote_connection import LOGGER as selenium_logger
 
 from src.utils.automation_settings import LOG_LEVEL
 
@@ -40,7 +39,11 @@ def _format_loguru_record(record):
     details = ""
     if exception:
         details = "\n" + redact_log_text("".join(traceback.format_exception(*exception)))
-    return f"{timestamp} | {record['level'].name:<7} | PYTHON | {location} | {message}{details}\n"
+    rendered = f"{timestamp} | {record['level'].name:<7} | PYTHON | {location} | {message}{details}\n"
+    # Loguru formats callable formatter results with str.format(). Escape braces
+    # in already-rendered messages/tracebacks so values such as ChromeDriver's
+    # refs/branch-heads/8127@{{#1691}} remain literal text.
+    return rendered.replace("{", "{{").replace("}", "}}")
 
 
 class RedactingFormatter(logging.Formatter):
@@ -75,12 +78,13 @@ def configure_logging():
         enqueue=True,
     )
 
-    selenium_logger.handlers.clear()
-    selenium_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-    selenium_logger.propagate = False
-    formatter = RedactingFormatter("%(asctime)s | %(levelname)-7s | SELENIUM | %(message)s", "%Y-%m-%d %H:%M:%S")
+    playwright_logger = logging.getLogger("playwright")
+    playwright_logger.handlers.clear()
+    playwright_logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    playwright_logger.propagate = False
+    formatter = RedactingFormatter("%(asctime)s | %(levelname)-7s | PLAYWRIGHT | %(message)s", "%Y-%m-%d %H:%M:%S")
     file_handler = logging.handlers.TimedRotatingFileHandler(
-        LOG_DIR / "atf-selenium.log",
+        LOG_DIR / "atf-playwright.log",
         when="midnight",
         interval=1,
         backupCount=RETENTION_DAYS,
@@ -90,8 +94,8 @@ def configure_logging():
     file_handler.setFormatter(formatter)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    selenium_logger.addHandler(file_handler)
-    selenium_logger.addHandler(console_handler)
+    playwright_logger.addHandler(file_handler)
+    playwright_logger.addHandler(console_handler)
 
 
 configure_logging()

@@ -15,13 +15,12 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from urllib.parse import parse_qs, urlparse
 
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.common.exceptions import StaleElementReferenceException
+from src.utils.playwright_session import By, PlaywrightSession, StaleLocatorError
 
 from src.database import db_manager, DatabaseManager
 from src.utils.chrome_utils import init_browser
+from src.utils.process_signals import install_graceful_termination_handler
+from src.logging import logger
 
 class StatusVerifier:
     def __init__(self, db: Optional[DatabaseManager] = None):
@@ -58,7 +57,7 @@ class StatusVerifier:
         except ValueError:
             return False
 
-    def get_external_apply_url(self, driver: WebDriver, apply_button=None) -> Optional[str]:
+    def get_external_apply_url(self, driver: PlaywrightSession, apply_button=None) -> Optional[str]:
         """Obtém o destino externo do botão de candidatura sem clicar nele."""
         candidate_elements = []
         if apply_button is not None:
@@ -79,7 +78,7 @@ class StatusVerifier:
             for attribute in ("href", "data-url", "data-apply-url", "formaction"):
                 try:
                     candidate_url = element.get_attribute(attribute)
-                except StaleElementReferenceException:
+                except StaleLocatorError:
                     break
                 if not candidate_url:
                     continue
@@ -94,7 +93,7 @@ class StatusVerifier:
 
         return None
 
-    def detect_apply_button_type(self, driver: WebDriver) -> Dict[str, Any]:
+    def detect_apply_button_type(self, driver: PlaywrightSession) -> Dict[str, Any]:
         """
         Inspeciona o botão de candidatura da vaga aberta no momento:
         Retorna se é 'easy_apply', 'external_link', 'already_applied', ou 'closed'.
@@ -155,7 +154,7 @@ class StatusVerifier:
 
     def process_and_filter_job(
         self,
-        driver: WebDriver,
+        driver: PlaywrightSession,
         title: str,
         company: str,
         location: str,
@@ -247,7 +246,7 @@ class StatusVerifier:
 
         return {"action": "unknown", "status": "pending"}
 
-    def verify_registered_applications(self, driver: WebDriver, limit: int = 25) -> Dict[str, int]:
+    def verify_registered_applications(self, driver: PlaywrightSession, limit: int = 25) -> Dict[str, int]:
         """
         Itera sobre as candidaturas cadastradas no banco de dados SQLite para
         revalidar seus estados no LinkedIn de forma 100% passiva.
@@ -276,7 +275,7 @@ class StatusVerifier:
             stats["verificadas"] += 1
             print(f"\n🔎 [{i+1}/{min(len(opportunities), limit)}] Verificando: {title} @ {company}")
             try:
-                driver.get(url)
+                driver.navigate(url)
                 time.sleep(3)
 
                 btn_info = self.detect_apply_button_type(driver)
@@ -309,6 +308,9 @@ class StatusVerifier:
             except Exception as e:
                 stats["erros"] += 1
                 print(f"   ⚠️ Erro ao verificar vaga {opp_id}: {e}")
+                if not driver.is_connected:
+                    logger.error("Verificador: sessão perdida; interrompendo revalidação")
+                    break
 
             time.sleep(1.5)
 
@@ -321,7 +323,7 @@ class StatusVerifier:
 
     def scan_and_classify_search(
         self,
-        driver: WebDriver,
+        driver: PlaywrightSession,
         positions: List[str],
         locations: List[str]
     ) -> Dict[str, int]:
@@ -341,7 +343,7 @@ class StatusVerifier:
             for local in locations:
                 print(f"\n📍 Buscando vagas para classificar: {cargo} em {local}")
                 url = f"https://www.linkedin.com/jobs/search/?keywords={cargo}&location={local}"
-                driver.get(url)
+                driver.navigate(url)
                 time.sleep(5)
 
                 try:
@@ -356,14 +358,14 @@ class StatusVerifier:
 
                     for i, card in enumerate(job_cards):
                         try:
-                            driver.execute_script("arguments[0].scrollIntoView();", card)
+                            card.locator.evaluate("element => element.scrollIntoView()")
 
                             # Captura link da vaga
                             try:
                                 link_elem = card.find_element(By.CSS_SELECTOR, "a.job-card-container__link")
                                 link_vaga = link_elem.get_attribute("href").split("?")[0]
                             except Exception:
-                                link_vaga = driver.current_url
+                                link_vaga = driver.url
 
                             card.click()
                             time.sleep(2)
@@ -395,12 +397,18 @@ class StatusVerifier:
 
                         except Exception as e:
                             print(f"   ⚠️ Erro ao classificar item {i+1}: {e}")
+                            if not driver.is_connected:
+                                logger.error("Verificador: sessão perdida; interrompendo varredura")
+                                return stats
                             continue
 
                         time.sleep(1)
 
                 except Exception as e:
                     print(f"   ⚠️ Erro na listagem de busca: {e}")
+                    if not driver.is_connected:
+                        logger.error("Verificador: sessão perdida; encerrando classificação")
+                        return stats
 
                 time.sleep(2)
 
@@ -414,6 +422,7 @@ class StatusVerifier:
 
 def run_verifier_flow():
     """Fluxo principal do script de verificação."""
+    install_graceful_termination_handler()
     print("=" * 60)
     print("🤖 MÓDULO DE VERIFICAÇÃO DE ESTADO & CLASSIFICAÇÃO DE VAGAS")
     print("=" * 60)
@@ -440,7 +449,8 @@ def run_verifier_flow():
         driver = init_browser()
         # Login
         print("--- 🔑 FAZENDO LOGIN PARA VERIFICAÇÃO ---")
-        driver.get("https://www.linkedin.com/login")
+        logger.info("Verificador: abrindo login do LinkedIn; sessão persistente ativa")
+        driver.navigate("https://www.linkedin.com/login")
         time.sleep(3)
 
         # Login automatizado básico
@@ -450,11 +460,21 @@ def run_verifier_flow():
             user_field.send_keys(email)
             pass_field.send_keys(password)
             driver.find_element(By.XPATH, "//button[@type='submit']").click()
-        except Exception:
-            pass
+        except Exception as error:
+            logger.warning("Verificador: preenchimento automático indisponível; tipo={}", type(error).__name__)
 
         print("\n" + "="*50 + "\n✋ PAUSA: Resolva Captcha se necessário e vá para o FEED.\n👉 Aperte ENTER aqui para continuar...\n" + "="*50)
+        logger.info("Verificador: aguardando autenticação manual na mesma sessão Playwright")
         input()
+        try:
+            current_url = driver.url
+        except Exception as error:
+            logger.exception("Verificador: sessão Playwright perdida durante pausa; tipo={}", type(error).__name__)
+            raise RuntimeError("Sessão do navegador foi encerrada durante a autenticação manual.") from error
+        parsed = urlparse(current_url)
+        if not StatusVerifier.is_linkedin_url(current_url) or not parsed.path.lower().startswith("/feed"):
+            raise RuntimeError("Autenticação não confirmada: conclua login/verificação e abra o Feed antes de continuar.")
+        logger.info("Verificador: autenticação manual confirmada no Feed")
 
         verifier = StatusVerifier(db=db_manager)
 
@@ -466,17 +486,20 @@ def run_verifier_flow():
         total_encontradas = res_verif["verificadas"] + res_scan["total_mapeadas"]
 
     except KeyboardInterrupt:
+        logger.warning("Verificador: parada graciosa solicitada; fechando navegador")
         print("\n🛑 Verificação interrompida pelo usuário.")
         status_final = "interrupted"
     except Exception as e:
         print(f"\n🚨 Erro durante a verificação: {e}")
+        logger.exception("Verificador encerrado com erro; tipo={}", type(e).__name__)
         status_final = "error"
     finally:
         if driver:
             try:
-                driver.quit()
-            except Exception:
-                pass
+                logger.info("Verificador: encerrando sessão Playwright")
+                driver.close()
+            except Exception as error:
+                logger.warning("Verificador: erro ao encerrar navegador; tipo={}", type(error).__name__)
 
         # Expurgo final de CSVs e registro do término
         db_manager.purge_csv_files()

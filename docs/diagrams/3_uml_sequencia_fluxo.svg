@@ -63,10 +63,10 @@
     <line x1="90" y1="42" x2="90" y2="920" stroke="#334155" stroke-width="1.5" stroke-dasharray="4" />
   </g>
 
-  <!-- 5. Selenium WebDriver -->
+  <!-- 5. Playwright persistent context -->
   <g transform="translate(1040, 115)">
     <rect width="170" height="42" rx="8" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5" />
-    <text x="85" y="26" font-size="13" font-weight="700" fill="#c084fc" text-anchor="middle">Selenium / Chrome</text>
+    <text x="85" y="26" font-size="13" font-weight="700" fill="#c084fc" text-anchor="middle">Playwright / Chromium</text>
     <line x1="85" y1="42" x2="85" y2="920" stroke="#334155" stroke-width="1.5" stroke-dasharray="4" />
   </g>
 

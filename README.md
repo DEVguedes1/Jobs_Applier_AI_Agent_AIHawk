@@ -3,7 +3,7 @@
 > Bot em Python com automação de candidaturas Easy Apply, verificação passiva de status e acompanhamento das oportunidades em um dashboard SQLite.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Selenium](https://img.shields.io/badge/Selenium-Automation-green)
+![Playwright](https://img.shields.io/badge/Playwright-Automation-green)
 
 ## 📋 Sobre o Projeto
 
@@ -30,7 +30,7 @@ Diferente de bots comuns, este projeto permite intervenção manual em momentos 
 ## 🛠️ Tecnologias Utilizadas
 
 * **Linguagem:** Python 3.x
-* **Automação Web:** Selenium WebDriver
+* **Automação Web:** Playwright Python (contexto persistente)
 * **Gestão de Configuração:** PyYAML
 * **Persistência:** SQLite local em desenvolvimento ou API central autenticada
 
@@ -118,22 +118,37 @@ cd dashboard
 KIWI_DB_PATH=/srv/kiwi/data/kiwibot.db PORT=3000 npm start
 ```
 
+Para executar localmente, inicie `npm start` no diretório `dashboard` e entre no Dashboard pelo navegador. Ao iniciar o bot no painel, o worker Python abre uma única janela Playwright; conclua o login nela e use **Continuar** no Dashboard. O navegador permanece aberto na mesma sessão até o fluxo terminar ou o usuário parar o bot.
+
 Disponibilize o servidor por HTTPS (por exemplo, atrás de um proxy reverso) e use esse mesmo endereço no navegador e nos bots remotos. Cadastre a conta pela tela de autenticação do Dashboard. Faça backup do volume persistente regularmente.
 
-Para executar o bot em outra máquina, instale neste host o Python, as dependências do projeto e um navegador compatível. Selenium Manager resolve o driver quando necessário; não é preciso instalar um caminho fixo de ChromeDriver. Configure `KIWI_API_URL` com a URL HTTPS do Dashboard e `KIWI_SESSION_TOKEN` com um token de sessão obtido pelo login na API. O token é uma credencial: injete-o por um gerenciador de segredos ou variável de ambiente protegida; não o comite nem o compartilhe. O bot iniciado pelo próprio Dashboard já recebe a URL e a sessão do usuário autenticado.
+Para executar o bot em outra máquina, instale neste host o Python, as dependências do projeto e o navegador Playwright. Configure `KIWI_API_URL` com a URL HTTPS do Dashboard e `KIWI_SESSION_TOKEN` com um token de sessão obtido pelo login na API. O token é uma credencial: injete-o por um gerenciador de segredos ou variável de ambiente protegida; não o comite nem o compartilhe. O bot iniciado pelo próprio Dashboard já recebe a URL e a sessão do usuário autenticado.
 
-O dashboard pode ser acessado por navegadores móveis e desktop modernos pela mesma URL HTTPS. Os bots executam no host onde o processo do Dashboard inicia o Python; o celular não precisa de Python, navegador de automação ou driver. O servidor e o worker precisam permanecer ativos. Para usar um Grid ou endpoint WebDriver remoto, configure as variáveis abaixo no ambiente do servidor:
+O dashboard pode ser acessado por navegadores móveis e desktop modernos pela mesma URL HTTPS. Os bots executam no host onde o processo do Dashboard inicia o Python; o celular não precisa de Python, navegador de automação ou driver. O servidor e o worker precisam permanecer ativos. O Playwright abre um perfil persistente separado por mecanismo, preservando a sessão durante a autenticação manual:
 
 ```bash
-ATF_BROWSER=chrome                  # chrome (padrão), edge ou firefox
-ATF_SELENIUM_REMOTE_URL=https://grid.example.com/wd/hub  # opcional
+ATF_BROWSER=chrome                  # chrome (padrão), chromium, edge, firefox ou webkit
+ATF_BROWSER_PROFILE=data_folder/playwright-profile-chrome  # opcional
+ATF_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome  # opcional
 ATF_HEADLESS=false                  # false mantém o navegador visível
 ATF_PYTHON_PATH=/opt/atf/.venv/bin/python  # opcional
 ```
 
-Sem `ATF_SELENIUM_REMOTE_URL`, Selenium Manager seleciona e gerencia o driver, desde que o Selenium instalado ofereça esse recurso e o host possa acessar os endpoints de download quando o driver não estiver no cache. Caminhos explícitos também são aceitos por `ATF_CHROMEDRIVER`, `ATF_EDGEDRIVER` ou `ATF_GECKODRIVER`. `PYTHON_PATH` continua aceito por compatibilidade; `ATF_PYTHON_PATH` tem precedência.
+Para preparar um host Debian com Python 3.13 e os navegadores Chromium administrados pelo Playwright:
 
-Chrome é o navegador padrão. Edge e Firefox podem ser selecionados para validação, mas o fluxo de vagas precisa ser homologado neles antes do uso. Safari funciona como navegador de acesso ao dashboard, não como navegador local do bot neste projeto. O fluxo de autenticação atual requer uma janela visível para login e desafios manuais; `ATF_HEADLESS=true` configura o navegador, mas não fornece interface remota para resolver MFA/CAPTCHA. Execução centralizada sem acesso direto ao host exige uma solução de sessão assistida e isolada.
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+sudo .venv/bin/playwright install-deps chromium
+```
+
+Valide a lógica sem iniciar navegadores reais com `PYTHONPATH=. python -m pytest -q` e `cd dashboard && npm test`. Os testes reais de navegador são opt-in: execute `ATF_RUN_BROWSER_TESTS=1 PYTHONPATH=. python -m unittest discover -s tests -p 'test_playwright_browser.py'` em uma sessão gráfica. Para testar o navegador gerenciado pelo Playwright, defina `ATF_BROWSER=chromium`; o padrão `chrome` testa o Google Chrome instalado no sistema. Esses testes navegam até a tela de login do LinkedIn, mas não preenchem credenciais nem enviam candidaturas.
+
+`chrome` usa Google Chrome instalado no sistema; `chromium`, `firefox` e `webkit` usam os navegadores administrados pelo Playwright. `edge` seleciona Microsoft Edge pelo canal `msedge`. `ATF_BROWSER_EXECUTABLE_PATH` permite apontar para um executável compatível. `PYTHON_PATH` continua aceito; `ATF_PYTHON_PATH` tem precedência.
+
+Chrome é o navegador padrão. Firefox e WebKit podem ser selecionados para validação, mas o fluxo de vagas precisa ser homologado em cada engine. Playwright WebKit não é Safari nativo; Safari no iPhone é suportado para acessar o dashboard, não para executar o bot. O fluxo de autenticação requer uma janela visível para login e desafios manuais; `ATF_HEADLESS=true` não fornece interface remota para resolver MFA/CAPTCHA. Execução centralizada sem acesso direto ao host exige uma solução de sessão assistida e isolada. Geração de PDF via `page.pdf()` é suportada apenas no Chromium.
 
 Exemplo de configuração do processo remoto (injete o token fora do código-fonte):
 

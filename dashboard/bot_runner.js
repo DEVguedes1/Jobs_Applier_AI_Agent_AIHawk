@@ -105,7 +105,7 @@ function createBotRunner({ rootDir, onRunStarted, onRunFinished, spawnProcess = 
       addLog(`Iniciando [${actionName}] com Python em ${pythonCommand}`, 'INFO', 'BOT.RUNNER');
       addLog(
         `Configuração: browser=${process.env.ATF_BROWSER || 'chrome'} headless=${process.env.ATF_HEADLESS || 'false'} ` +
-        `webdriverRemoto=${process.env.ATF_SELENIUM_REMOTE_URL ? 'configurado' : 'não'} ` +
+        `perfilPersistente=${process.env.ATF_BROWSER_PROFILE || 'padrão do projeto'} ` +
         `envioReal=${process.env.ATF_ALLOW_REAL_APPLICATIONS === 'true' ? 'habilitado' : 'bloqueado'}`,
         'INFO', 'BOT.RUNNER'
       );

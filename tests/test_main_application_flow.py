@@ -5,13 +5,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from selenium.common.exceptions import TimeoutException, WebDriverException
-from selenium.webdriver.common.by import By
-from urllib3.exceptions import ReadTimeoutError
-
 import main
 from src.database import DatabaseManager
 from src.utils import chrome_utils
+from src.utils.playwright_session import (
+    By,
+    ClickBlockedError,
+    StaleLocatorError,
+    TimeoutException,
+    BrowserAutomationError,
+    BrowserSessionLostError,
+)
 
 
 class FakeElement:
@@ -22,6 +26,10 @@ class FakeElement:
         self.children = children or {}
         self.visible = visible
         self.clicked = False
+        self.locator = self
+
+    def evaluate(self, *_args):
+        return None
 
     def is_displayed(self):
         return self.visible
@@ -87,10 +95,11 @@ class FakeDriver:
         navigation_error=False,
         results_delay_checks=0,
         page_load_timeout=False,
-        remote_read_timeout=False,
+        session_lost=False,
         new_search_layout=False,
     ):
-        self.current_url = "https://www.linkedin.com/jobs/search/"
+        self.url = "https://www.linkedin.com/jobs/search/"
+        self.page = type("FakePage", (), {"evaluate": lambda *_args: "complete"})()
         self.requested_urls = []
         self.details_open = False
         self.form_open = False
@@ -101,7 +110,7 @@ class FakeDriver:
         self.results_delay_checks = results_delay_checks
         self.result_checks = 0
         self.page_load_timeout = page_load_timeout
-        self.remote_read_timeout = remote_read_timeout
+        self.session_lost = session_lost
         self.new_search_layout = new_search_layout
         self.cards = [FakeCard(url, self) for url in card_urls]
         self.required_field = (
@@ -141,24 +150,21 @@ class FakeDriver:
 
     def _submit(self):
         if self.submit_error:
-            raise WebDriverException("simulated send failure")
+            raise BrowserAutomationError("simulated send failure")
 
-    def get(self, url):
+    def navigate(self, url):
         if self.navigation_error:
-            raise WebDriverException("simulated navigation failure")
+            raise BrowserAutomationError("simulated navigation failure")
         self.requested_urls.append(url)
-        self.current_url = (
+        self.url = (
             "https://www.linkedin.com/jobs/search-results/?currentJobId=20"
             if self.new_search_layout
             else url
         )
-        if self.remote_read_timeout:
-            raise ReadTimeoutError(None, "http://localhost:1234", "simulated ChromeDriver read timeout")
+        if self.session_lost:
+            raise BrowserSessionLostError("simulated browser session loss")
         if self.page_load_timeout:
             raise TimeoutException("simulated page load timeout")
-
-    def execute_script(self, *_args):
-        return None
 
     def find_elements(self, by, selector):
         if (by, selector) == (By.CSS_SELECTOR, ".job-card-container"):
@@ -257,7 +263,7 @@ class ApplicationFlowTests(unittest.TestCase):
     def run_search(self, driver, database=None):
         configure_dialog(driver)
         with (
-            patch.object(main, "WebDriverWait", ImmediateWait),
+            patch.object(main, "PageWait", ImmediateWait),
             patch.object(main.time, "sleep"),
             patch.object(main, "ALLOW_REAL_APPLICATIONS", True),
         ):
@@ -327,7 +333,7 @@ class ApplicationFlowTests(unittest.TestCase):
         driver = FakeDriver(multi_step=True)
         driver.form_open = True
         configure_dialog(driver)
-        with patch.object(main, "WebDriverWait", ImmediateWait), patch.object(main, "ALLOW_REAL_APPLICATIONS", True):
+        with patch.object(main, "PageWait", ImmediateWait), patch.object(main, "ALLOW_REAL_APPLICATIONS", True):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
         self.assertIn("Enviada e confirmada", status)
         self.assertTrue(confirmed)
@@ -336,7 +342,7 @@ class ApplicationFlowTests(unittest.TestCase):
     def test_easy_apply_modal_timeout_is_reported(self):
         driver = FakeDriver()
         configure_dialog(driver)
-        with patch.object(main, "WebDriverWait", ImmediateWait):
+        with patch.object(main, "PageWait", ImmediateWait):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
         self.assertIn("não abriu dentro do tempo limite", status)
         self.assertFalse(confirmed)
@@ -364,7 +370,7 @@ class ApplicationFlowTests(unittest.TestCase):
         driver = FakeDriver(required_value="")
         driver.form_open = True
         configure_dialog(driver)
-        with patch.object(main, "WebDriverWait", ImmediateWait):
+        with patch.object(main, "PageWait", ImmediateWait):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
         self.assertIn("campos obrigatórios", status)
         self.assertFalse(confirmed)
@@ -375,7 +381,7 @@ class ApplicationFlowTests(unittest.TestCase):
         driver.form_open = True
         configure_dialog(driver)
         with (
-            patch.object(main, "WebDriverWait", ImmediateWait),
+            patch.object(main, "PageWait", ImmediateWait),
             patch.object(main, "ALLOW_REAL_APPLICATIONS", False),
         ):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
@@ -440,12 +446,11 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertEqual(result, (1, 1))
         self.assertIn("Vaga elegível", output)
 
-    def test_chromedriver_read_timeout_stops_further_searches(self):
-        driver = FakeDriver(remote_read_timeout=True)
+    def test_lost_browser_session_stops_further_searches(self):
+        driver = FakeDriver(session_lost=True)
         result, output = self.run_search(driver)
         self.assertEqual(result, (0, 0))
-        self.assertIn("ChromeDriver não respondeu", output)
-        self.assertIn("Busca interrompida", output)
+        self.assertIn("Sessão do navegador perdida", output)
 
     def test_navigation_failure_is_reported_without_claiming_application(self):
         driver = FakeDriver(navigation_error=True)
@@ -508,7 +513,7 @@ class ApplicationFlowTests(unittest.TestCase):
 
     def test_login_page_after_manual_pause_is_not_treated_as_authenticated(self):
         driver = FakeDriver()
-        driver.current_url = "https://www.linkedin.com/login"
+        driver.url = "https://www.linkedin.com/login"
         with patch.object(main, "input", return_value=""), patch.object(main.time, "sleep"):
             with self.assertRaisesRegex(RuntimeError, "Autenticação não confirmada"):
                 main.login_linkedin(driver, "user", "password")
@@ -516,7 +521,7 @@ class ApplicationFlowTests(unittest.TestCase):
     def test_feed_confirms_authentication_without_legacy_global_nav_selector(self):
         driver = FakeDriver()
         def finish_manual_login():
-            driver.current_url = "https://www.linkedin.com/feed/"
+            driver.url = "https://www.linkedin.com/feed/"
             return ""
 
         with patch.object(main, "input", side_effect=finish_manual_login), patch.object(main.time, "sleep"):
@@ -524,71 +529,19 @@ class ApplicationFlowTests(unittest.TestCase):
                 main.login_linkedin(driver, "user", "password")
         self.assertIn("Sessão do LinkedIn confirmada no Feed", output.getvalue())
 
-    def test_chrome_uses_eager_page_load_strategy(self):
-        options = chrome_utils.chrome_browser_options()
-        self.assertEqual(options.page_load_strategy, "eager")
+    def test_chrome_is_the_default_playwright_browser(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(chrome_utils._browser_name(), "chrome")
 
-    def test_browser_sets_finite_page_load_timeout(self):
-        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
-        with (
-            patch.object(chrome_utils.webdriver, "Chrome", return_value=browser),
-            patch.dict(os.environ, {"ATF_BROWSER": "chrome"}, clear=False),
-        ):
-            chrome_utils.init_browser()
-        browser.set_page_load_timeout.assert_called_once_with(45)
+    def test_playwright_browser_engines_are_selectable(self):
+        for browser in ("chrome", "chromium", "edge", "firefox", "webkit"):
+            with self.subTest(browser=browser), patch.dict(os.environ, {"ATF_BROWSER": browser}, clear=True):
+                self.assertEqual(chrome_utils._browser_name(), browser)
 
-    def test_browser_defaults_to_selenium_manager_without_fixed_driver_path(self):
-        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
-        with (
-            patch.object(chrome_utils.webdriver, "Chrome", return_value=browser) as chrome,
-            patch.dict(os.environ, {"ATF_BROWSER": "chrome"}, clear=False),
-            patch.dict(os.environ, {"ATF_CHROMEDRIVER": ""}, clear=False),
-        ):
-            chrome_utils.init_browser()
-        chrome.assert_called_once()
-        self.assertNotIn("service", chrome.call_args.kwargs)
-
-    def test_browser_can_be_selected_without_changing_default(self):
-        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
-        with (
-            patch.object(chrome_utils.webdriver, "Firefox", return_value=browser) as firefox,
-            patch.dict(os.environ, {"ATF_BROWSER": "firefox"}, clear=False),
-            patch.dict(os.environ, {"ATF_GECKODRIVER": ""}, clear=False),
-        ):
-            chrome_utils.init_browser()
-        firefox.assert_called_once()
-
-    def test_edge_can_be_selected(self):
-        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
-        with (
-            patch.object(chrome_utils.webdriver, "Edge", return_value=browser) as edge,
-            patch.dict(os.environ, {"ATF_BROWSER": "edge", "ATF_EDGEDRIVER": ""}, clear=False),
-        ):
-            chrome_utils.init_browser()
-        edge.assert_called_once()
-
-    def test_browser_can_use_remote_webdriver_endpoint(self):
-        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
-        with (
-            patch.object(chrome_utils.webdriver, "Remote", return_value=browser) as remote,
-            patch.dict(os.environ, {
-                "ATF_BROWSER": "chrome",
-                "ATF_SELENIUM_REMOTE_URL": "http://grid.example:4444",
-            }, clear=False),
-        ):
-            chrome_utils.init_browser()
-        remote.assert_called_once()
-        self.assertEqual(remote.call_args.kwargs["command_executor"], "http://grid.example:4444")
-
-    def test_headless_is_opt_in_and_chrome_no_sandbox_is_opt_in(self):
-        with patch.dict(os.environ, {
-            "ATF_HEADLESS": "true",
-            "ATF_CHROME_NO_SANDBOX": "true",
-        }, clear=False):
-            options = chrome_utils.chrome_browser_options()
-        self.assertIn("--headless=new", options.arguments)
-        if chrome_utils.sys.platform.startswith("linux"):
-            self.assertIn("--no-sandbox", options.arguments)
+    def test_unknown_playwright_browser_is_rejected(self):
+        with patch.dict(os.environ, {"ATF_BROWSER": "safari"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "ATF_BROWSER"):
+                chrome_utils._browser_name()
 
     def test_card_click_reacquires_card_after_dom_replacement(self):
         url = "https://www.linkedin.com/jobs/view/77"
@@ -598,14 +551,13 @@ class ApplicationFlowTests(unittest.TestCase):
         class StaleOnceCard(FakeCard):
             def click(self):
                 driver.cards = [replacement]
-                raise main.StaleElementReferenceException("card replaced")
+                raise main.StaleLocatorError("card replaced")
 
         driver.cards = [StaleOnceCard(url, driver)]
-        driver.execute_script = lambda *_args: None
         driver.find_elements = lambda by, selector: (
             driver.cards if (by, selector) == (By.CSS_SELECTOR, ".job-card-container") else []
         )
-        with patch.object(main, "WebDriverWait", ImmediateWait):
+        with patch.object(main, "PageWait", ImmediateWait):
             main._click_job_card(driver, url)
         self.assertTrue(replacement.clicked)
 

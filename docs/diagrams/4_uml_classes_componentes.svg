@@ -74,7 +74,7 @@
 
     <!-- Attributes -->
     <text x="15" y="60" font-size="11" font-weight="700" fill="#fde68a">ATRIBUTOS</text>
-    <text x="15" y="80" font-size="12" fill="#cbd5e1">- driver: webdriver.Chrome</text>
+    <text x="15" y="80" font-size="12" fill="#cbd5e1">- driver: PlaywrightSession</text>
     <text x="15" y="100" font-size="12" fill="#cbd5e1">- db: DatabaseManager</text>
     <text x="15" y="120" font-size="12" fill="#cbd5e1">- positions: List[str]</text>
     <text x="15" y="140" font-size="12" fill="#cbd5e1">- locations: List[str]</text>
@@ -104,7 +104,7 @@
     <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">JobApplierBot (main.py)</text>
     <rect y="38" width="420" height="230" fill="#1e293b" stroke="#0284c7" stroke-width="1.5" rx="0 0 8 8" />
 
-    <text x="15" y="65" font-size="12" fill="#cbd5e1">- driver: webdriver.Chrome</text>
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">- driver: PlaywrightSession</text>
     <text x="15" y="85" font-size="12" fill="#cbd5e1">- db: DatabaseManager</text>
     <line x1="15" y1="98" x2="405" y2="98" stroke="#334155" stroke-width="1" />
     <text x="15" y="120" font-size="12" fill="#f1f5f9">+ login_linkedin(driver, user, pass) -&gt; None</text>
@@ -120,10 +120,10 @@
     <text x="15" y="24" font-size="14" font-weight="700" fill="#ffffff">ChromeUtils (src/utils/chrome_utils.py)</text>
     <rect y="38" width="430" height="150" fill="#1e293b" stroke="#7c3aed" stroke-width="1.5" rx="0 0 8 8" />
 
-    <text x="15" y="65" font-size="12" fill="#cbd5e1">+ chrome_browser_options() -&gt; Options</text>
-    <text x="15" y="90" font-size="12" fill="#cbd5e1">+ init_browser() -&gt; webdriver.Chrome</text>
+    <text x="15" y="65" font-size="12" fill="#cbd5e1">+ browser_type() -&gt; Playwright BrowserType</text>
+    <text x="15" y="90" font-size="12" fill="#cbd5e1">+ init_browser() -&gt; PlaywrightSession</text>
     <text x="15" y="115" font-size="12" fill="#cbd5e1">+ HTML_to_PDF(html_content, driver) -&gt; str</text>
-    <text x="15" y="140" font-size="11" fill="#94a3b8">Utiliza webdriver_manager para sincronizar ChromeDriver</text>
+    <text x="15" y="140" font-size="11" fill="#94a3b8">Gerencia perfil persistente e ciclo de vida da sessão</text>
   </g>
 
   <!-- Entrypoints / CLI Runners -->

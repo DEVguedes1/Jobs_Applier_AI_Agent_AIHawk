@@ -69,8 +69,8 @@ class ResumeFacade:
 
         
     def link_to_job(self, job_url):
-        self.driver.get(job_url)
-        self.driver.implicitly_wait(10)
+        self.driver.navigate(job_url)
+        self.driver.page.set_default_timeout(10_000)
         body_element = self.driver.find_element("tag name", "body")
         body_element = body_element.get_attribute("outerHTML")
         self.llm_job_parser = LLMParser(openai_api_key=global_config.API_KEY)
@@ -105,7 +105,7 @@ class ResumeFacade:
         suggested_name = hashlib.md5(self.job.link.encode()).hexdigest()[:10]
         
         result = HTML_to_PDF(html_resume, self.driver)
-        self.driver.quit()
+        self.driver.close()
         return result, suggested_name
     
     
@@ -125,7 +125,7 @@ class ResumeFacade:
         
         html_resume = self.resume_generator.create_resume(style_path)
         result = HTML_to_PDF(html_resume, self.driver)
-        self.driver.quit()
+        self.driver.close()
         return result
 
     def create_cover_letter(self) -> tuple[bytes, str]:
@@ -149,5 +149,5 @@ class ResumeFacade:
 
         
         result = HTML_to_PDF(cover_letter_html, self.driver)
-        self.driver.quit()
+        self.driver.close()
         return result, suggested_name

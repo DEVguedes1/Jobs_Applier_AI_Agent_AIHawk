@@ -54,21 +54,19 @@ def command_version(command):
 def main():
     browser_name = os.getenv("ATF_BROWSER", "chrome").strip().lower()
     browser_commands = {
-        "chrome": ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"),
+        "chrome": ("google-chrome", "google-chrome-stable"),
+        "chromium": ("chromium", "chromium-browser"),
         "edge": ("msedge", "microsoft-edge", "microsoft-edge-stable"),
         "firefox": ("firefox",),
+        "webkit": (),
     }
     browser = next((result for command in browser_commands.get(browser_name, ()) if (result := command_version(command))), None)
-    if browser_name == "safari" or not browser:
-        browser = command_version("safaridriver") if platform.system() == "Darwin" else browser
-    driver_variables = {"chrome": "ATF_CHROMEDRIVER", "edge": "ATF_EDGEDRIVER", "firefox": "ATF_GECKODRIVER"}
-    configured_driver = os.getenv(driver_variables.get(browser_name, ""), "")
-    if os.getenv("ATF_SELENIUM_REMOTE_URL"):
-        driver_method = "Remote WebDriver"
-    elif configured_driver:
-        driver_method = f"explicit driver path ({configured_driver})"
-    else:
-        driver_method = "Selenium Manager (implicit local resolution)"
+    if browser_name == "webkit":
+        browser = {"path": "Playwright WebKit", "version": "Playwright-managed WebKit"}
+    executable = os.getenv("ATF_BROWSER_EXECUTABLE_PATH", "")
+    if executable:
+        browser = command_version(executable)
+    driver_method = "Playwright persistent browser context; driver management is internal"
 
     try:
         from src.utils.automation_settings import (
@@ -98,12 +96,11 @@ def main():
         "os": {"name": platform.system(), "release": platform.release(), "machine": platform.machine()},
         "node": os.getenv("ATF_NODE_VERSION", "unknown"),
         "python": {"version": platform.python_version(), "executable": sys.executable},
-        "selenium": {"installed": installed_version("selenium"), "declared": declared_version("selenium")},
-        "webdriver_manager": {"installed": installed_version("webdriver-manager"), "declared": declared_version("webdriver-manager")},
+        "playwright": {"installed": installed_version("playwright"), "declared": declared_version("playwright")},
         "browser": {"selected": browser_name, "detected": browser or "not detected"},
         "driver_management": driver_method,
-        "execution": {"headless": os.getenv("ATF_HEADLESS", "false"), "remote": bool(os.getenv("ATF_SELENIUM_REMOTE_URL")), "allow_real_applications": allow_submissions},
-        "paths": {"project_root": str(ROOT), "python": sys.executable, "browser": browser.get("path") if browser else "not detected"},
+        "execution": {"headless": os.getenv("ATF_HEADLESS", "false"), "persistent_profile": os.getenv("ATF_BROWSER_PROFILE", "data_folder/playwright-profile-" + browser_name), "allow_real_applications": allow_submissions},
+        "paths": {"project_root": str(ROOT), "python": sys.executable, "browser": browser.get("path") if browser else "not detected", "browser_executable_override": executable or "not configured"},
         "timeouts": timeouts,
         "log_level": log_level,
     }

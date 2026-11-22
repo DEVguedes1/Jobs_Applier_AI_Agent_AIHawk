@@ -14,18 +14,19 @@ if hasattr(sys.stdout, 'reconfigure'):
 import yaml
 from datetime import datetime
 from urllib.parse import urlparse
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import (
-    ElementClickInterceptedException,
-    StaleElementReferenceException,
+from src.utils.playwright_session import (
+    By,
+    Keys,
+    ClickBlockedError,
+    StaleLocatorError,
     TimeoutException,
-    WebDriverException,
+    BrowserAutomationError,
+    BrowserSessionLostError,
+    PageWait,
 )
-from selenium.webdriver.support.ui import WebDriverWait
-from urllib3.exceptions import ReadTimeoutError
 
 from src.utils.chrome_utils import init_browser
+from src.utils.process_signals import install_graceful_termination_handler
 from src.utils.automation_settings import (
     CARD_CLICK_TIMEOUT,
     DETAIL_WAIT_TIMEOUT,
@@ -38,6 +39,13 @@ from src.status_verifier import StatusVerifier, run_verifier_flow
 from src.logging import logger
 
 historico_vagas = []
+
+
+def _safe_browser_location(url):
+    """Return a URL location without query parameters or fragments."""
+    parsed = urlparse(url or "")
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
 
 def load_secrets():
     try:
@@ -70,7 +78,22 @@ def is_external_url(url: str) -> bool:
 
 def login_linkedin(driver, username, password):
     print("--- 🔑 FAZENDO LOGIN ---")
-    driver.get("https://www.linkedin.com/login")
+    login_url = "https://www.linkedin.com/login"
+    logger.info("Login: iniciando navegação para LinkedIn; browser_connected={}", getattr(driver, "is_connected", False))
+    try:
+        driver.navigate(login_url)
+        logger.info(
+            "Login: navegação concluída; url={} ready_state={}",
+            _safe_browser_location(driver.url),
+            driver.page.evaluate("() => document.readyState"),
+        )
+    except Exception as exc:
+        logger.exception(
+            "Login: falha ao navegar para LinkedIn; tipo={} browser_connected={}",
+            type(exc).__name__,
+            getattr(driver, "is_connected", False),
+        )
+        raise
     time.sleep(3)
     
     try:
@@ -123,12 +146,25 @@ def login_linkedin(driver, username, password):
         else:
             print("⚠️ Campos de login não visíveis. Por favor, faça login na janela do Chrome.")
     except Exception as e:
-        print(f"⚠️ Aviso no preenchimento: {e}. Por favor, faça login diretamente na janela do Chrome.")
+        logger.exception("Login: falha durante interação automatizada; tipo={}", type(e).__name__)
+        try:
+            driver.url
+        except Exception as session_error:
+            logger.exception("Login: sessão Playwright perdida durante preenchimento; tipo={}", type(session_error).__name__)
+            raise RuntimeError("Sessão Playwright perdida durante o preenchimento do login.") from session_error
+        print(f"⚠️ Aviso no preenchimento: {type(e).__name__}. Por favor, faça login diretamente na janela do Chrome.")
 
     print("\n" + "="*50 + "\n✋ PAUSA: conclua o login e qualquer verificação manual no Chrome.\n👉 Abra o Feed do LinkedIn e clique em Continuar no Dashboard.\n" + "="*50)
+    logger.info("Login: aguardando autenticação manual; navegador permanece na sessão atual")
     input()
 
-    parsed_url = urlparse(driver.current_url)
+    try:
+        current_url = driver.url
+    except Exception as exc:
+        logger.exception("Login: sessão Playwright indisponível após pausa manual; tipo={}", type(exc).__name__)
+        raise RuntimeError("Sessão Playwright foi encerrada durante a autenticação manual.") from exc
+    logger.info("Login: pausa manual concluída; url={}", _safe_browser_location(current_url))
+    parsed_url = urlparse(current_url)
     hostname = (parsed_url.hostname or "").lower()
     login_paths = ("/login", "/checkpoint", "/authwall", "/uas/")
     is_linkedin = hostname == "linkedin.com" or hostname.endswith(".linkedin.com")
@@ -256,7 +292,7 @@ def _close_application_dialog(driver, timeout=5):
 
     action_buttons[0].click()
     try:
-        WebDriverWait(driver, timeout).until(
+        PageWait(driver, timeout).until(
             lambda current_driver: (
                 not _visible_application_dialog(current_driver)
                 or _visible_discard_button(current_driver)
@@ -269,7 +305,7 @@ def _close_application_dialog(driver, timeout=5):
     if discard_button:
         discard_button.click()
         try:
-            WebDriverWait(driver, timeout).until(
+            PageWait(driver, timeout).until(
                 lambda current_driver: not _visible_application_dialog(current_driver)
             )
         except TimeoutException:
@@ -280,7 +316,7 @@ def _close_application_dialog(driver, timeout=5):
 
 def tentar_aplicar_sozinho(driver, timeout=FORM_WAIT_TIMEOUT):
     try:
-        WebDriverWait(driver, timeout).until(_visible_application_dialog)
+        PageWait(driver, timeout).until(_visible_application_dialog)
     except TimeoutException:
         return "Falhou: formulário Easy Apply não abriu dentro do tempo limite.", False
 
@@ -321,7 +357,7 @@ def tentar_aplicar_sozinho(driver, timeout=FORM_WAIT_TIMEOUT):
                 logger.info("Etapa final do formulário identificada; iniciando envio controlado")
                 submit_buttons[0].click()
                 try:
-                    WebDriverWait(driver, timeout).until(_application_confirmation_visible)
+                    PageWait(driver, timeout).until(_application_confirmation_visible)
                 except TimeoutException:
                     logger.error("Interface não confirmou envio após {}s", timeout)
                     return "Falhou: a interface não confirmou o envio após a tentativa.", False
@@ -334,7 +370,7 @@ def tentar_aplicar_sozinho(driver, timeout=FORM_WAIT_TIMEOUT):
             logger.debug("Formulário Easy Apply avançando para próxima etapa")
             next_buttons[0].click()
             try:
-                WebDriverWait(driver, timeout).until(
+                PageWait(driver, timeout).until(
                     lambda current_driver: _application_form_changed(
                         current_driver, previous_signature
                     )
@@ -346,7 +382,9 @@ def tentar_aplicar_sozinho(driver, timeout=FORM_WAIT_TIMEOUT):
                 return "Enviada e confirmada pela interface do LinkedIn.", True
 
         return "Ignorada: formulário excedeu o limite de 10 etapas; vaga mantida pendente.", False
-    except (StaleElementReferenceException, WebDriverException) as error:
+    except BrowserSessionLostError:
+        raise
+    except (StaleLocatorError, BrowserAutomationError) as error:
         return f"Falhou durante o envio: {type(error).__name__}: {error}", False
 
 
@@ -423,12 +461,14 @@ def _visible_job_company(driver):
 def _job_results_ready(driver):
     if any(card.is_displayed() for card in _find_job_cards(driver)):
         return True
-    current_url = driver.current_url.lower()
+    current_url = driver.url.lower()
     if any(part in current_url for part in ("/login", "/checkpoint", "/authwall")):
         return True
     try:
         body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
-    except WebDriverException:
+    except BrowserSessionLostError:
+        raise
+    except BrowserAutomationError:
         return False
     return any(message in body_text for message in (
         "nenhuma vaga", "não encontramos", "não há vagas", "não há resultados",
@@ -437,7 +477,7 @@ def _job_results_ready(driver):
 
 
 def _wait_for_job_results(driver):
-    return WebDriverWait(driver, RESULTS_WAIT_TIMEOUT, poll_frequency=0.5).until(_job_results_ready)
+    return PageWait(driver, RESULTS_WAIT_TIMEOUT, poll_frequency=0.5).until(_job_results_ready)
 
 
 def _find_clickable_job_card(driver, target_url):
@@ -454,15 +494,13 @@ def _click_job_card(driver, target_url):
     last_error = None
     for attempt in range(2):
         try:
-            card = WebDriverWait(driver, CARD_CLICK_TIMEOUT, poll_frequency=0.25).until(
+            card = PageWait(driver, CARD_CLICK_TIMEOUT, poll_frequency=0.25).until(
                 lambda current_driver: _find_clickable_job_card(current_driver, target_url)
             )
-            driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", card
-            )
+            card.locator.evaluate("element => element.scrollIntoView({block: 'center', inline: 'nearest'})")
             card.click()
             return
-        except (StaleElementReferenceException, ElementClickInterceptedException) as error:
+        except (StaleLocatorError, ClickBlockedError) as error:
             last_error = error
             logger.warning(
                 "Recuperação de clique no cartão tentativa={} falha={}",
@@ -483,7 +521,7 @@ def search_jobs(driver, positions, locations, db=None):
     status_verifier = StatusVerifier(db=db)
     seen_urls = set()
     stats = {"elegiveis": 0, "em_andamento": 0, "ignoradas": 0, "falhas": 0, "duplicadas": 0}
-    stop_after_driver_timeout = False
+    stop_after_browser_loss = False
     stop_after_unclosed_application = False
     
     for cargo in positions:
@@ -496,16 +534,16 @@ def search_jobs(driver, positions, locations, db=None):
             })
 
             try:
-                driver.get(url)
+                driver.navigate(url)
+            except BrowserSessionLostError as error:
+                logger.error("Sessão Playwright perdida na navegação de busca: {}", type(error).__name__)
+                print("   ❌ Sessão do navegador perdida durante a busca; execução interrompida para evitar novos comandos.")
+                stats["falhas"] += 1
+                stop_after_browser_loss = True
+                break
             except TimeoutException:
                 print("   ⏱️ O carregamento completo excedeu o limite; verificando se os resultados já estão disponíveis.")
-            except ReadTimeoutError as error:
-                print(f"   ❌ ChromeDriver não respondeu durante a navegação: {error}")
-                print("   ⏹️ Busca interrompida para evitar repetir comandos em um navegador sem resposta.")
-                stats["falhas"] += 1
-                stop_after_driver_timeout = True
-                break
-            except WebDriverException as error:
+            except BrowserAutomationError as error:
                 print(f"   ❌ Falha de navegação na busca: {type(error).__name__}: {error}")
                 stats["falhas"] += 1
                 continue
@@ -514,23 +552,23 @@ def search_jobs(driver, positions, locations, db=None):
             print(f"   ⏳ Aguardando cartões ou estado final da busca (limite de {RESULTS_WAIT_TIMEOUT}s)...")
             try:
                 _wait_for_job_results(driver)
+            except BrowserSessionLostError as error:
+                logger.error("Sessão Playwright perdida aguardando resultados: {}", type(error).__name__)
+                print("   ❌ Sessão do navegador perdida aguardando resultados; execução interrompida.")
+                stats["falhas"] += 1
+                stop_after_browser_loss = True
+                break
             except TimeoutException:
                 logger.warning("Busca sem cartões ou estado final após {}s", RESULTS_WAIT_TIMEOUT)
-                print(f"   ⏱️ Busca sem cartões/estado final após {RESULTS_WAIT_TIMEOUT}s: {driver.current_url}")
+                print(f"   ⏱️ Busca sem cartões/estado final após {RESULTS_WAIT_TIMEOUT}s: {driver.url}")
                 stats["falhas"] += 1
                 continue
-            except ReadTimeoutError as error:
-                print(f"   ❌ ChromeDriver não respondeu enquanto aguardava resultados: {error}")
-                print("   ⏹️ Busca interrompida para evitar repetir comandos em um navegador sem resposta.")
-                stats["falhas"] += 1
-                stop_after_driver_timeout = True
-                break
-            except WebDriverException as error:
+            except BrowserAutomationError as error:
                 print(f"   ❌ Falha de navegação na busca: {type(error).__name__}: {error}")
                 stats["falhas"] += 1
                 continue
 
-            if "/login" in driver.current_url.lower() or "/checkpoint" in driver.current_url.lower():
+            if "/login" in driver.url.lower() or "/checkpoint" in driver.url.lower():
                 raise RuntimeError("Sessão do LinkedIn não autenticada durante a busca.")
 
             try:
@@ -564,7 +602,7 @@ def search_jobs(driver, positions, locations, db=None):
                         logger.debug("Tentativa de clique no cartão index={} id={}", i + 1, link_vaga.rsplit("/", 1)[-1])
                         _click_job_card(driver, link_vaga)
                         logger.info("Cartão selecionado index={} id={}", i + 1, link_vaga.rsplit("/", 1)[-1])
-                        title_element = WebDriverWait(driver, DETAIL_WAIT_TIMEOUT).until(_visible_job_title)
+                        title_element = PageWait(driver, DETAIL_WAIT_TIMEOUT).until(_visible_job_title)
                         titulo = title_element.text.strip()
                         logger.info("Anúncio aberto index={} título={}", i + 1, titulo)
                         company_element = _visible_job_company(driver)
@@ -663,14 +701,19 @@ def search_jobs(driver, positions, locations, db=None):
                             datetime.now().strftime("%d/%m/%Y %H:%M"),
                             titulo, empresa, local, status, link_vaga
                         ])
-                    except StaleElementReferenceException as error:
+                    except StaleLocatorError as error:
                         logger.warning("Cartão mudou durante processamento index={} error={}", i + 1, type(error).__name__)
                         stats["falhas"] += 1
                         print(f"   ❌ Vaga {i + 1} mudou durante a leitura; ignorada: {error}")
-                    except (TimeoutException, WebDriverException) as error:
-                        logger.error("Falha Selenium index={} type={} error={}", i + 1, type(error).__name__, error)
+                    except BrowserSessionLostError as error:
+                        logger.error("Sessão Playwright perdida processando anúncio index={}", i + 1)
                         stats["falhas"] += 1
-                        print(f"   ❌ Falha Selenium na vaga {i + 1} ({link_vaga or 'sem URL'}): "
+                        stop_after_browser_loss = True
+                        print(f"   ❌ Sessão do navegador perdida durante a vaga {i + 1}; busca interrompida.")
+                    except (TimeoutException, BrowserAutomationError) as error:
+                        logger.error("Falha Playwright index={} type={} error={}", i + 1, type(error).__name__, error)
+                        stats["falhas"] += 1
+                        print(f"   ❌ Falha Playwright na vaga {i + 1} ({link_vaga or 'sem URL'}): "
                               f"{type(error).__name__}: {error}")
                         if link_vaga and titulo:
                             db.save_or_update_opportunity(
@@ -683,17 +726,21 @@ def search_jobs(driver, positions, locations, db=None):
                         raise
 
                     time.sleep(1)
-                    if stop_after_unclosed_application:
+                    if stop_after_unclosed_application or stop_after_browser_loss:
                         break
 
-            except (StaleElementReferenceException, WebDriverException) as error:
-                print(f"   ❌ Falha Selenium na lista de vagas: {type(error).__name__}: {error}")
+            except BrowserSessionLostError as error:
+                logger.error("Sessão Playwright perdida na lista de vagas: {}", type(error).__name__)
+                stats["falhas"] += 1
+                stop_after_browser_loss = True
+            except (StaleLocatorError, BrowserAutomationError) as error:
+                print(f"   ❌ Falha Playwright na lista de vagas: {type(error).__name__}: {error}")
                 stats["falhas"] += 1
             except Exception as error:
                 print(f"   ❌ Falha inesperada ao processar lista de vagas: {type(error).__name__}: {error}")
                 raise
 
-            if stop_after_driver_timeout or stop_after_unclosed_application:
+            if stop_after_browser_loss or stop_after_unclosed_application:
                 break
             time.sleep(1)
 
@@ -708,6 +755,7 @@ def search_jobs(driver, positions, locations, db=None):
     return total_encontradas, total_enviadas
 
 def main():
+    install_graceful_termination_handler()
     # Verifica se foi solicitado o modo de verificação de estado
     if "--verify" in sys.argv or "--mode=verify" in sys.argv:
         run_verifier_flow()
@@ -744,17 +792,22 @@ def main():
         login_linkedin(driver, email, password)
         total_encontradas, total_enviadas = search_jobs(driver, positions, locations)
     except KeyboardInterrupt:
+        logger.warning("Parada graciosa solicitada; fechando navegador e persistindo estado")
         print("\n🛑 Parado pelo usuário.")
         status_final = "interrupted"
     except Exception as e:
         print(f"🚨 Erro: {e}")
+        logger.exception("Execução interrompida por erro; tipo={}", type(e).__name__)
         status_final = "error"
         fatal_error = e
     finally:
         if driver:
             try:
-                driver.quit()
+                logger.info("Encerrando sessão Playwright no finally; browser_connected={}", getattr(driver, "is_connected", False))
+                driver.close()
+                logger.info("Sessão Playwright encerrada normalmente")
             except Exception as e:
+                logger.warning("Erro ao encerrar sessão Playwright; tipo={}", type(e).__name__)
                 print(f"⚠️ Erro ao fechar o navegador: {e}")
 
         # 2. Rotina de expurgo obrigatória de arquivos CSV a cada término de processamento

@@ -184,10 +184,10 @@
   <text x="905" y="505" font-size="12" font-weight="700" fill="#fde68a">2. Filtro &amp; Isolamento de Links Externos</text>
   <text x="905" y="525" font-size="11" fill="#cbd5e1">Detecta links fora do LinkedIn ➔ Se não cadastrado: LINK_EXTERNO_NAO_CADASTRADO</text>
 
-  <!-- Selenium Browser Driver -->
+  <!-- Playwright Browser -->
   <rect x="880" y="570" width="450" height="100" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.2" />
-  <text x="895" y="598" font-size="14" font-weight="700" fill="#f1f5f9">Selenium WebDriver &amp; Chrome Incognito</text>
-  <text x="895" y="620" font-size="12" fill="#cbd5e1">• src/utils/chrome_utils.py com webdriver_manager</text>
+  <text x="895" y="598" font-size="14" font-weight="700" fill="#f1f5f9">Playwright persistent context &amp; Chrome</text>
+  <text x="895" y="620" font-size="12" fill="#cbd5e1">• src/utils/chrome_utils.py com Playwright</text>
   <text x="895" y="640" font-size="12" fill="#cbd5e1">• Navegação headless/visual com suporte a autenticação por cookies/sessão</text>
 
   <!-- Target Systems: LinkedIn & External Sites -->
@@ -219,7 +219,7 @@
   <path d="M 880 470 L 800 470" fill="none" stroke="#10b981" stroke-width="2.5" marker-end="url(#arrowKiwi)" />
   <text x="815" y="462" font-size="11" font-weight="600" fill="#10b981">Direto no DB</text>
 
-  <!-- Python Selenium to LinkedIn -->
+  <!-- Python Playwright to LinkedIn -->
   <path d="M 1105 670 L 1105 725" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow)" />
 
   <!-- Python Verifier to External Isolated Queue -->

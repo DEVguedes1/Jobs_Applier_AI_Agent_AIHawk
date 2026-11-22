@@ -29,10 +29,8 @@ async function reportStartupDiagnostics(rootDir) {
       env: { ...process.env, ATF_NODE_VERSION: process.versions.node }
     });
     const report = JSON.parse(stdout);
-    const selenium = report.selenium || {};
-    const webdriverManager = report.webdriver_manager || {};
-    const severity = isExactVersionMismatch(selenium.installed, selenium.declared) ||
-      isExactVersionMismatch(webdriverManager.installed, webdriverManager.declared)
+    const playwright = report.playwright || {};
+    const severity = isExactVersionMismatch(playwright.installed, playwright.declared)
       ? 'warn'
       : 'info';
     logger[severity]('DIAGNOSTIC.ENVIRONMENT', 'Runtime compatibility report', report);
