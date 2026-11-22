@@ -4,6 +4,8 @@ const path     = require('path');
 const url      = require('url');
 const crypto   = require('crypto');
 const { createBotRunner } = require('./bot_runner');
+const { logger } = require('./logger');
+const { reportStartupDiagnostics } = require('./diagnostics');
 
 const PORT       = process.env.PORT || 3000;
 const ROOT_DIR   = path.resolve(__dirname, '..');
@@ -32,31 +34,29 @@ const {
   updateUserProfile
 } = require('./db');
 
-// O carregamento do banco não deve bloquear a abertura do servidor HTTP. Se a migração
-// do SQLite for mais pesada em alguma máquina, o dashboard ainda precisa ficar disponível.
 function initializeDatabase() {
   try {
     initDb();
-    console.log('[SERVER] Banco do dashboard inicializado com sucesso.');
+    logger.info('SERVER.DATABASE', 'Database initialized');
+    return true;
   } catch (error) {
-    console.error('[SERVER] Falha ao inicializar o banco do dashboard:', error.message);
+    logger.error('SERVER.DATABASE', 'Database initialization failed', { error: error.message });
+    return false;
   }
 }
-
-setImmediate(initializeDatabase);
 
 let botRunner;
 botRunner = createBotRunner({
   rootDir: ROOT_DIR,
-  onLog: message => console.log(`[ROBO] ${message}`),
   onRunStarted: ({ runId, startedAt, userId }) => {
     db.prepare(`INSERT INTO bot_runs (id, user_id, started_at, run_status) VALUES (?, ?, ?, ?)`)
       .run(runId, userId, startedAt, 'running');
+    logger.info('SERVER.BOT', 'Bot process starting', { runId, userId });
   },
   onRunFinished: ({ runId, finishedAt, status, userId }) => {
     db.prepare(`UPDATE bot_runs SET finished_at=?, run_status=? WHERE id=? AND user_id=?`)
       .run(finishedAt, status, runId, userId);
-    botRunner.addLog(`Execução concluída. Dados registrados diretamente no SQLite.`);
+    logger.info('SERVER.BOT', 'Bot process finished', { runId, userId, status, finishedAt });
   }
 });
 
@@ -141,6 +141,31 @@ function readJsonBody(req) {
 
 // ─── Servidor HTTP ────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
+  const pathnameForLog = (req.url || '/').split('?', 1)[0];
+  logger.debug('HTTP.REQUEST', 'Request received', { method: req.method, path: pathnameForLog });
+  res.on('finish', () => {
+    if (res.statusCode >= 400) {
+      logger.warn('HTTP.RESPONSE', 'Request completed with error status', {
+        method: req.method,
+        path: pathnameForLog,
+        status: res.statusCode
+      });
+    }
+  });
+  try {
+    handleRequest(req, res);
+  } catch (error) {
+    logger.error('HTTP.HANDLER', 'Unhandled synchronous request failure', {
+      method: req.method,
+      path: pathnameForLog,
+      error: error.stack || error.message
+    });
+    if (!res.headersSent) json(res, 500, { success: false, error: 'Falha interna do servidor.' });
+    else res.destroy(error);
+  }
+});
+
+function handleRequest(req, res) {
   const parsedUrl = url.parse(req.url, true);
   const pathname  = parsedUrl.pathname;
   const query     = parsedUrl.query;
@@ -541,7 +566,7 @@ const server = http.createServer((req, res) => {
 
   // ── GET /api/bot/status ───────────────────────────────────────────────────
   if (pathname === '/api/bot/status' && method === 'GET') {
-    json(res, 200, { success: true, ...botRunner.getStatus() });
+    json(res, 200, { success: true, ...botRunner.getStatus(apiUser.id) });
     return;
   }
 
@@ -569,14 +594,14 @@ const server = http.createServer((req, res) => {
 
   // ── POST /api/bot/continue ────────────────────────────────────────────────
   if (pathname === '/api/bot/continue' && method === 'POST') {
-    const result = botRunner.continue();
+    const result = botRunner.continue(apiUser.id);
     json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }
 
   // ── POST /api/bot/stop ────────────────────────────────────────────────────
   if (pathname === '/api/bot/stop' && method === 'POST') {
-    const result = botRunner.stop();
+    const result = botRunner.stop(apiUser.id);
     json(res, result.statusCode || (result.success ? 200 : 400), result);
     return;
   }
@@ -602,17 +627,59 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
     fs.createReadStream(filePath).pipe(res);
   });
+}
+
+server.on('clientError', (error, socket) => {
+  logger.warn('HTTP.CLIENT', 'Malformed or interrupted HTTP request', { error: error.message });
+  if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
 });
 
-server.on('error', (error) => {
-  console.error('[SERVER] Falha ao iniciar o servidor HTTP:', error.message);
-  process.exit(1);
+server.on('error', error => {
+  logger.error('SERVER.HTTP', 'HTTP server error', { code: error.code, error: error.message });
+  process.exitCode = 1;
 });
 
-server.listen(PORT, () => {
-  console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
-  console.log(`║   🥝  KIWI BOT — Career ATS Iniciado com Sucesso!            ║`);
-  console.log(`║   🌐  http://localhost:${PORT}                               ║`);
-  console.log(`║   🗄️   Banco Relacional: SQLite (kiwibot.db)                  ║`);
-  console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+let shutdownStarted = false;
+function shutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.warn('SERVER.LIFECYCLE', 'Graceful shutdown requested', { signal });
+  const serverClosed = new Promise(resolve => {
+    if (!server.listening) return resolve();
+    server.close(() => resolve());
+    server.closeAllConnections?.();
+  });
+  Promise.allSettled([serverClosed, botRunner.shutdown()]).then(() => {
+    logger.info('SERVER.LIFECYCLE', 'Shutdown completed');
+  });
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('unhandledRejection', reason => {
+  logger.error('SERVER.RUNTIME', 'Unhandled promise rejection', { error: reason?.stack || String(reason) });
+});
+process.on('uncaughtException', error => {
+  logger.error('SERVER.RUNTIME', 'Uncaught exception; shutting down', { error: error.stack || error.message });
+  process.exitCode = 1;
+  shutdown('uncaughtException');
+});
+
+setImmediate(() => {
+  if (!initializeDatabase()) {
+    logger.error('SERVER.LIFECYCLE', 'Server was not started because database initialization failed');
+    process.exitCode = 1;
+    return;
+  }
+  server.listen(PORT, () => {
+    logger.info('SERVER.LIFECYCLE', 'ATF dashboard listening', {
+      url: `http://localhost:${PORT}`,
+      port: PORT,
+      database: 'SQLite',
+      pid: process.pid
+    });
+    reportStartupDiagnostics(ROOT_DIR).catch(error => {
+      logger.error('DIAGNOSTIC.ENVIRONMENT', 'Startup diagnostics failed', { error: error.message });
+    });
+  });
 });

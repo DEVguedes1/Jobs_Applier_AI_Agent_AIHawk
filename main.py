@@ -16,13 +16,26 @@ from datetime import datetime
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, WebDriverException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.support.ui import WebDriverWait
 from urllib3.exceptions import ReadTimeoutError
 
 from src.utils.chrome_utils import init_browser
+from src.utils.automation_settings import (
+    CARD_CLICK_TIMEOUT,
+    DETAIL_WAIT_TIMEOUT,
+    FORM_WAIT_TIMEOUT,
+    ALLOW_REAL_APPLICATIONS,
+    RESULTS_WAIT_TIMEOUT,
+)
 from src.database import db_manager
 from src.status_verifier import StatusVerifier, run_verifier_flow
+from src.logging import logger
 
 historico_vagas = []
 
@@ -265,7 +278,7 @@ def _close_application_dialog(driver, timeout=5):
     return not _visible_application_dialog(driver)
 
 
-def tentar_aplicar_sozinho(driver, timeout=10):
+def tentar_aplicar_sozinho(driver, timeout=FORM_WAIT_TIMEOUT):
     try:
         WebDriverWait(driver, timeout).until(_visible_application_dialog)
     except TimeoutException:
@@ -302,10 +315,15 @@ def tentar_aplicar_sozinho(driver, timeout=10):
                 return "Ignorada: há campos obrigatórios sem resposta confiável.", False
 
             if submit_buttons and not next_buttons:
+                if not ALLOW_REAL_APPLICATIONS:
+                    logger.warning("Envio final bloqueado: ATF_ALLOW_REAL_APPLICATIONS não está habilitado")
+                    return "Pausada: envio real desativado; formulário não submetido.", False
+                logger.info("Etapa final do formulário identificada; iniciando envio controlado")
                 submit_buttons[0].click()
                 try:
                     WebDriverWait(driver, timeout).until(_application_confirmation_visible)
                 except TimeoutException:
+                    logger.error("Interface não confirmou envio após {}s", timeout)
                     return "Falhou: a interface não confirmou o envio após a tentativa.", False
                 return "Enviada e confirmada pela interface do LinkedIn.", True
 
@@ -313,6 +331,7 @@ def tentar_aplicar_sozinho(driver, timeout=10):
                 return "Falhou: botão de avanço ou envio não encontrado no formulário.", False
 
             previous_signature = _application_form_signature(dialog)
+            logger.debug("Formulário Easy Apply avançando para próxima etapa")
             next_buttons[0].click()
             try:
                 WebDriverWait(driver, timeout).until(
@@ -321,6 +340,7 @@ def tentar_aplicar_sozinho(driver, timeout=10):
                     )
                 )
             except TimeoutException:
+                logger.warning("Formulário não avançou após {}s", timeout)
                 return "Falhou: a interface não avançou para a próxima etapa.", False
             if _application_confirmation_visible(driver):
                 return "Enviada e confirmada pela interface do LinkedIn.", True
@@ -375,18 +395,6 @@ def _find_job_cards(driver):
     return []
 
 
-def _job_results_container_visible(driver):
-    for selector in (
-        ".jobs-search-results-list",
-        ".jobs-search-results-list__list",
-        ".jobs-search-results__list",
-        ".scaffold-layout__list",
-    ):
-        if driver.find_elements(By.CSS_SELECTOR, selector):
-            return True
-    return False
-
-
 def _visible_job_title(driver):
     for selector in (
         ".job-details-jobs-unified-top-card__job-title",
@@ -413,10 +421,10 @@ def _visible_job_company(driver):
 
 
 def _job_results_ready(driver):
-    if _find_job_cards(driver) or _job_results_container_visible(driver):
+    if any(card.is_displayed() for card in _find_job_cards(driver)):
         return True
     current_url = driver.current_url.lower()
-    if "/login" in current_url or "/checkpoint" in current_url:
+    if any(part in current_url for part in ("/login", "/checkpoint", "/authwall")):
         return True
     try:
         body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
@@ -429,8 +437,42 @@ def _job_results_ready(driver):
 
 
 def _wait_for_job_results(driver):
-    while not _job_results_ready(driver):
-        time.sleep(1)
+    return WebDriverWait(driver, RESULTS_WAIT_TIMEOUT, poll_frequency=0.5).until(_job_results_ready)
+
+
+def _find_clickable_job_card(driver, target_url):
+    for card in _find_job_cards(driver):
+        if _job_card_url(card) != target_url or not card.is_displayed():
+            continue
+        is_enabled = getattr(card, "is_enabled", None)
+        if is_enabled is None or is_enabled():
+            return card
+    return False
+
+
+def _click_job_card(driver, target_url):
+    last_error = None
+    for attempt in range(2):
+        try:
+            card = WebDriverWait(driver, CARD_CLICK_TIMEOUT, poll_frequency=0.25).until(
+                lambda current_driver: _find_clickable_job_card(current_driver, target_url)
+            )
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});", card
+            )
+            card.click()
+            return
+        except (StaleElementReferenceException, ElementClickInterceptedException) as error:
+            last_error = error
+            logger.warning(
+                "Recuperação de clique no cartão tentativa={} falha={}",
+                attempt + 1,
+                type(error).__name__,
+            )
+            if attempt == 1:
+                raise
+    if last_error:
+        raise last_error
 
 
 def search_jobs(driver, positions, locations, db=None):
@@ -446,6 +488,7 @@ def search_jobs(driver, positions, locations, db=None):
     
     for cargo in positions:
         for local in locations:
+            logger.info("Busca iniciada: cargo={} local={}", cargo, local)
             print(f"\n📍 Pesquisando: {cargo} em {local}")
             url = "https://www.linkedin.com/jobs/search/?" + urlencode({
                 "keywords": cargo,
@@ -467,9 +510,15 @@ def search_jobs(driver, positions, locations, db=None):
                 stats["falhas"] += 1
                 continue
 
-            print("   ⏳ Aguardando resultados da busca (sem limite fixo de tempo)...")
+            logger.debug("Navegação para resultados concluída; aguardando estado de busca")
+            print(f"   ⏳ Aguardando cartões ou estado final da busca (limite de {RESULTS_WAIT_TIMEOUT}s)...")
             try:
                 _wait_for_job_results(driver)
+            except TimeoutException:
+                logger.warning("Busca sem cartões ou estado final após {}s", RESULTS_WAIT_TIMEOUT)
+                print(f"   ⏱️ Busca sem cartões/estado final após {RESULTS_WAIT_TIMEOUT}s: {driver.current_url}")
+                stats["falhas"] += 1
+                continue
             except ReadTimeoutError as error:
                 print(f"   ❌ ChromeDriver não respondeu enquanto aguardava resultados: {error}")
                 print("   ⏹️ Busca interrompida para evitar repetir comandos em um navegador sem resposta.")
@@ -486,6 +535,7 @@ def search_jobs(driver, positions, locations, db=None):
 
             try:
                 job_cards = _find_job_cards(driver)
+                logger.info("Cartões identificados: count={}", len(job_cards))
                 print(f"   Encontrei {len(job_cards)} vagas nesta busca.")
                 total_encontradas += len(job_cards)
                 if not job_cards:
@@ -511,15 +561,18 @@ def search_jobs(driver, positions, locations, db=None):
                             continue
                         seen_urls.add(link_vaga)
 
-                        driver.execute_script("arguments[0].scrollIntoView();", card)
-                        card.click()
-                        title_element = WebDriverWait(driver, 10).until(_visible_job_title)
+                        logger.debug("Tentativa de clique no cartão index={} id={}", i + 1, link_vaga.rsplit("/", 1)[-1])
+                        _click_job_card(driver, link_vaga)
+                        logger.info("Cartão selecionado index={} id={}", i + 1, link_vaga.rsplit("/", 1)[-1])
+                        title_element = WebDriverWait(driver, DETAIL_WAIT_TIMEOUT).until(_visible_job_title)
                         titulo = title_element.text.strip()
+                        logger.info("Anúncio aberto index={} título={}", i + 1, titulo)
                         company_element = _visible_job_company(driver)
                         if company_element:
                             empresa = company_element.text.strip() or empresa
 
                         button_info = status_verifier.detect_apply_button_type(driver)
+                        logger.info("Tipo de candidatura detectado index={} type={}", i + 1, button_info["type"])
                         if button_info["type"] == "already_applied":
                             stats["ignoradas"] += 1
                             print(f"   ⏭️ Já aplicada segundo a interface: {titulo} @ {empresa}")
@@ -580,6 +633,7 @@ def search_jobs(driver, positions, locations, db=None):
                             continue
 
                         print(f"   ▶️ Candidatura em andamento: {titulo} @ {empresa}")
+                        logger.info("Formulário Easy Apply aberto index={} id={}", i + 1, link_vaga.rsplit("/", 1)[-1])
                         stats["em_andamento"] += 1
                         apply_buttons[0].click()
                         status, is_success = tentar_aplicar_sozinho(driver)
@@ -588,6 +642,7 @@ def search_jobs(driver, positions, locations, db=None):
                             stop_after_unclosed_application = True
                         if is_success:
                             total_enviadas += 1
+                            logger.info("Confirmação de candidatura recebida index={}", i + 1)
                             print(f"   ✅ Candidatura enviada e confirmada: {titulo} @ {empresa}")
                         elif status.startswith("Falhou:") or status.startswith("Falhou durante"):
                             stats["falhas"] += 1
@@ -609,9 +664,11 @@ def search_jobs(driver, positions, locations, db=None):
                             titulo, empresa, local, status, link_vaga
                         ])
                     except StaleElementReferenceException as error:
+                        logger.warning("Cartão mudou durante processamento index={} error={}", i + 1, type(error).__name__)
                         stats["falhas"] += 1
                         print(f"   ❌ Vaga {i + 1} mudou durante a leitura; ignorada: {error}")
                     except (TimeoutException, WebDriverException) as error:
+                        logger.error("Falha Selenium index={} type={} error={}", i + 1, type(error).__name__, error)
                         stats["falhas"] += 1
                         print(f"   ❌ Falha Selenium na vaga {i + 1} ({link_vaga or 'sem URL'}): "
                               f"{type(error).__name__}: {error}")
@@ -679,8 +736,10 @@ def main():
         positions = prefs.get("positions", ["Java Developer"])
         locations = prefs.get("locations", ["Brazil"])
 
+        logger.info("Configuração carregada: cargos={} localidades={}", len(positions), len(locations))
         print("🌐 Inicializando navegador Chrome...")
         driver = init_browser()
+        logger.info("Navegador inicializado; autenticando no LinkedIn")
         print("✅ Navegador Chrome inicializado.")
         login_linkedin(driver, email, password)
         total_encontradas, total_enviadas = search_jobs(driver, positions, locations)

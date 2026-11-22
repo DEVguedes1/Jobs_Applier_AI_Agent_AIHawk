@@ -211,13 +211,18 @@ async function pollBotStatus() {
 
     // Renderizar Logs no Terminal
     if (data.logs && data.logs.length > 0) {
-      dom.botTerminalLogs.innerHTML = data.logs.map(line => {
+      dom.botTerminalLogs.innerHTML = data.logs.map(entry => {
+        const line = typeof entry === 'string' ? entry : entry.message;
+        const prefix = typeof entry === 'string'
+          ? ''
+          : `${entry.timestamp} | ${entry.level} | ${entry.origin} | `;
         let color = 'var(--text-secondary)';
-        if (line.includes('[ERRO]') || line.includes('Error') || line.includes('Erro')) color = 'var(--text-muted)';
+        if (entry.level === 'ERROR' || line.includes('[ERRO]') || line.includes('Error') || line.includes('Erro')) color = 'var(--color-danger-subtle)';
+        else if (entry.level === 'WARN') color = 'var(--status-pending)';
         else if (line.includes('PAUSA') || line.includes('Aperte ENTER')) color = 'var(--kiwi-primary-light)';
         else if (line.includes('Falhou') || line.includes('❌')) color = 'var(--color-danger-subtle)';
         else if (line.includes('✅') || line.includes('enviada e confirmada')) color = 'var(--kiwi-primary-light)';
-        return `<div class="terminal-line" style="color: ${color};">${escapeHtml(line)}</div>`;
+        return `<div class="terminal-line" style="color: ${color};">${escapeHtml(prefix + line)}</div>`;
       }).join('');
       dom.botTerminalLogs.scrollTop = dom.botTerminalLogs.scrollHeight;
     }

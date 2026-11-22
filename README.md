@@ -120,7 +120,20 @@ KIWI_DB_PATH=/srv/kiwi/data/kiwibot.db PORT=3000 npm start
 
 Disponibilize o servidor por HTTPS (por exemplo, atrás de um proxy reverso) e use esse mesmo endereço no navegador e nos bots remotos. Cadastre a conta pela tela de autenticação do Dashboard. Faça backup do volume persistente regularmente.
 
-Para executar o bot em outra máquina, instale neste host o Python, as dependências do projeto e o Chrome/driver necessários. Configure `KIWI_API_URL` com a URL HTTPS do Dashboard e `KIWI_SESSION_TOKEN` com um token de sessão obtido pelo login na API. O token é uma credencial: injete-o por um gerenciador de segredos ou variável de ambiente protegida; não o comite nem o compartilhe. O bot iniciado pelo próprio Dashboard já recebe a URL e a sessão do usuário autenticado.
+Para executar o bot em outra máquina, instale neste host o Python, as dependências do projeto e um navegador compatível. Selenium Manager resolve o driver quando necessário; não é preciso instalar um caminho fixo de ChromeDriver. Configure `KIWI_API_URL` com a URL HTTPS do Dashboard e `KIWI_SESSION_TOKEN` com um token de sessão obtido pelo login na API. O token é uma credencial: injete-o por um gerenciador de segredos ou variável de ambiente protegida; não o comite nem o compartilhe. O bot iniciado pelo próprio Dashboard já recebe a URL e a sessão do usuário autenticado.
+
+O dashboard pode ser acessado por navegadores móveis e desktop modernos pela mesma URL HTTPS. Os bots executam no host onde o processo do Dashboard inicia o Python; o celular não precisa de Python, navegador de automação ou driver. O servidor e o worker precisam permanecer ativos. Para usar um Grid ou endpoint WebDriver remoto, configure as variáveis abaixo no ambiente do servidor:
+
+```bash
+ATF_BROWSER=chrome                  # chrome (padrão), edge ou firefox
+ATF_SELENIUM_REMOTE_URL=https://grid.example.com/wd/hub  # opcional
+ATF_HEADLESS=false                  # false mantém o navegador visível
+ATF_PYTHON_PATH=/opt/atf/.venv/bin/python  # opcional
+```
+
+Sem `ATF_SELENIUM_REMOTE_URL`, Selenium Manager seleciona e gerencia o driver, desde que o Selenium instalado ofereça esse recurso e o host possa acessar os endpoints de download quando o driver não estiver no cache. Caminhos explícitos também são aceitos por `ATF_CHROMEDRIVER`, `ATF_EDGEDRIVER` ou `ATF_GECKODRIVER`. `PYTHON_PATH` continua aceito por compatibilidade; `ATF_PYTHON_PATH` tem precedência.
+
+Chrome é o navegador padrão. Edge e Firefox podem ser selecionados para validação, mas o fluxo de vagas precisa ser homologado neles antes do uso. Safari funciona como navegador de acesso ao dashboard, não como navegador local do bot neste projeto. O fluxo de autenticação atual requer uma janela visível para login e desafios manuais; `ATF_HEADLESS=true` configura o navegador, mas não fornece interface remota para resolver MFA/CAPTCHA. Execução centralizada sem acesso direto ao host exige uma solução de sessão assistida e isolada.
 
 Exemplo de configuração do processo remoto (injete o token fora do código-fonte):
 

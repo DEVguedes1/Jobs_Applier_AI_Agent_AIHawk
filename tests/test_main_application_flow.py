@@ -237,14 +237,16 @@ class FakeDriver:
 
 
 class ImmediateWait:
-    def __init__(self, driver, _timeout):
+    def __init__(self, driver, timeout, **_kwargs):
         self.driver = driver
+        self.timeout = timeout
 
     def until(self, condition):
-        result = condition(self.driver)
-        if not result:
-            raise TimeoutException("simulated wait timeout")
-        return result
+        for _ in range(max(int(self.timeout), 1)):
+            result = condition(self.driver)
+            if result:
+                return result
+        raise TimeoutException("simulated wait timeout")
 
 
 def configure_dialog(driver):
@@ -254,7 +256,11 @@ def configure_dialog(driver):
 class ApplicationFlowTests(unittest.TestCase):
     def run_search(self, driver, database=None):
         configure_dialog(driver)
-        with patch.object(main, "WebDriverWait", ImmediateWait), patch.object(main.time, "sleep"):
+        with (
+            patch.object(main, "WebDriverWait", ImmediateWait),
+            patch.object(main.time, "sleep"),
+            patch.object(main, "ALLOW_REAL_APPLICATIONS", True),
+        ):
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 result = main.search_jobs(
                     driver,
@@ -269,6 +275,20 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertEqual(result, (0, 0))
         self.assertIn("Nenhuma vaga encontrada", output)
         self.assertIn("Nenhuma vaga elegível", output)
+
+    def test_search_with_unrecognized_page_state_stops_at_bounded_wait(self):
+        driver = FakeDriver()
+        original_find_elements = driver.find_elements
+
+        def find_without_terminal_state(by, selector):
+            if by == By.TAG_NAME and selector == "body":
+                return [FakeElement(text="A página ainda está carregando")]
+            return original_find_elements(by, selector)
+
+        driver.find_elements = find_without_terminal_state
+        result, output = self.run_search(driver)
+        self.assertEqual(result, (0, 0))
+        self.assertIn("Busca sem cartões/estado final após 20s", output)
 
     def test_found_job_without_apply_button_is_not_eligible(self):
         database = FakeDatabase()
@@ -307,7 +327,7 @@ class ApplicationFlowTests(unittest.TestCase):
         driver = FakeDriver(multi_step=True)
         driver.form_open = True
         configure_dialog(driver)
-        with patch.object(main, "WebDriverWait", ImmediateWait):
+        with patch.object(main, "WebDriverWait", ImmediateWait), patch.object(main, "ALLOW_REAL_APPLICATIONS", True):
             status, confirmed = main.tentar_aplicar_sozinho(driver)
         self.assertIn("Enviada e confirmada", status)
         self.assertTrue(confirmed)
@@ -350,15 +370,28 @@ class ApplicationFlowTests(unittest.TestCase):
         self.assertFalse(confirmed)
         self.assertFalse(driver.submit_button.clicked)
 
-    def test_search_waits_for_delayed_results_without_fixed_timeout(self):
+    def test_real_submission_is_blocked_by_default_mode(self):
+        driver = FakeDriver()
+        driver.form_open = True
+        configure_dialog(driver)
+        with (
+            patch.object(main, "WebDriverWait", ImmediateWait),
+            patch.object(main, "ALLOW_REAL_APPLICATIONS", False),
+        ):
+            status, confirmed = main.tentar_aplicar_sozinho(driver)
+        self.assertIn("envio real desativado", status)
+        self.assertFalse(confirmed)
+        self.assertFalse(driver.submit_button.clicked)
+
+    def test_search_waits_for_delayed_results_with_bounded_wait(self):
         driver = FakeDriver(
             card_urls=["https://www.linkedin.com/jobs/view/23"],
-            results_delay_checks=35,
+            results_delay_checks=5,
         )
         result, output = self.run_search(driver)
         self.assertEqual(result, (1, 1))
-        self.assertIn("sem limite fixo de tempo", output)
-        self.assertGreater(driver.result_checks, 30)
+        self.assertIn("limite de 20s", output)
+        self.assertGreater(driver.result_checks, 5)
 
     def test_results_are_processed_when_only_full_page_load_times_out(self):
         driver = FakeDriver(
@@ -498,13 +531,83 @@ class ApplicationFlowTests(unittest.TestCase):
     def test_browser_sets_finite_page_load_timeout(self):
         browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
         with (
-            patch.object(chrome_utils, "ChromeDriverManager") as manager,
-            patch.object(chrome_utils, "ChromeService"),
             patch.object(chrome_utils.webdriver, "Chrome", return_value=browser),
+            patch.dict(os.environ, {"ATF_BROWSER": "chrome"}, clear=False),
         ):
-            manager.return_value.install.return_value = "/tmp/chromedriver"
             chrome_utils.init_browser()
         browser.set_page_load_timeout.assert_called_once_with(45)
+
+    def test_browser_defaults_to_selenium_manager_without_fixed_driver_path(self):
+        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
+        with (
+            patch.object(chrome_utils.webdriver, "Chrome", return_value=browser) as chrome,
+            patch.dict(os.environ, {"ATF_BROWSER": "chrome"}, clear=False),
+            patch.dict(os.environ, {"ATF_CHROMEDRIVER": ""}, clear=False),
+        ):
+            chrome_utils.init_browser()
+        chrome.assert_called_once()
+        self.assertNotIn("service", chrome.call_args.kwargs)
+
+    def test_browser_can_be_selected_without_changing_default(self):
+        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
+        with (
+            patch.object(chrome_utils.webdriver, "Firefox", return_value=browser) as firefox,
+            patch.dict(os.environ, {"ATF_BROWSER": "firefox"}, clear=False),
+            patch.dict(os.environ, {"ATF_GECKODRIVER": ""}, clear=False),
+        ):
+            chrome_utils.init_browser()
+        firefox.assert_called_once()
+
+    def test_edge_can_be_selected(self):
+        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
+        with (
+            patch.object(chrome_utils.webdriver, "Edge", return_value=browser) as edge,
+            patch.dict(os.environ, {"ATF_BROWSER": "edge", "ATF_EDGEDRIVER": ""}, clear=False),
+        ):
+            chrome_utils.init_browser()
+        edge.assert_called_once()
+
+    def test_browser_can_use_remote_webdriver_endpoint(self):
+        browser = type("Browser", (), {"set_page_load_timeout": unittest.mock.Mock()})()
+        with (
+            patch.object(chrome_utils.webdriver, "Remote", return_value=browser) as remote,
+            patch.dict(os.environ, {
+                "ATF_BROWSER": "chrome",
+                "ATF_SELENIUM_REMOTE_URL": "http://grid.example:4444",
+            }, clear=False),
+        ):
+            chrome_utils.init_browser()
+        remote.assert_called_once()
+        self.assertEqual(remote.call_args.kwargs["command_executor"], "http://grid.example:4444")
+
+    def test_headless_is_opt_in_and_chrome_no_sandbox_is_opt_in(self):
+        with patch.dict(os.environ, {
+            "ATF_HEADLESS": "true",
+            "ATF_CHROME_NO_SANDBOX": "true",
+        }, clear=False):
+            options = chrome_utils.chrome_browser_options()
+        self.assertIn("--headless=new", options.arguments)
+        if chrome_utils.sys.platform.startswith("linux"):
+            self.assertIn("--no-sandbox", options.arguments)
+
+    def test_card_click_reacquires_card_after_dom_replacement(self):
+        url = "https://www.linkedin.com/jobs/view/77"
+        driver = type("CardDriver", (), {})()
+        replacement = FakeCard(url, driver)
+
+        class StaleOnceCard(FakeCard):
+            def click(self):
+                driver.cards = [replacement]
+                raise main.StaleElementReferenceException("card replaced")
+
+        driver.cards = [StaleOnceCard(url, driver)]
+        driver.execute_script = lambda *_args: None
+        driver.find_elements = lambda by, selector: (
+            driver.cards if (by, selector) == (By.CSS_SELECTOR, ".job-card-container") else []
+        )
+        with patch.object(main, "WebDriverWait", ImmediateWait):
+            main._click_job_card(driver, url)
+        self.assertTrue(replacement.clicked)
 
 
 if __name__ == "__main__":

@@ -2,164 +2,218 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { logger } = require('./logger');
 
-function createBotRunner({ rootDir, onLog, onRunStarted, onRunFinished }) {
+function resolvePythonCommand(rootDir, env = process.env, platform = process.platform) {
+  const configuredPython = env.ATF_PYTHON_PATH || env.PYTHON_PATH;
+  if (configuredPython && fs.existsSync(configuredPython)) return configuredPython;
+  const windows = platform === 'win32';
+  const candidates = [
+    path.join(rootDir, '.venv', windows ? 'Scripts/python.exe' : 'bin/python'),
+    path.join(rootDir, 'venv', windows ? 'Scripts/python.exe' : 'bin/python')
+  ];
+  return candidates.find(candidate => fs.existsSync(candidate)) || env.PYTHON || (windows ? 'python' : 'python3');
+}
+
+function createBotRunner({ rootDir, onRunStarted, onRunFinished, spawnProcess = spawn }) {
   let processHandle = null;
   let status = 'idle';
   let logs = [];
   let startedAt = null;
   let finishedAt = null;
+  let ownerId = null;
+  let runId = null;
+  let stopRequested = false;
 
-  function addLog(message) {
-    const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${message}`;
-    logs.push(line);
-    if (logs.length > 500) logs.shift();
-    onLog?.(message);
+  function addLog(message, level = 'INFO', origin = 'BOT.PYTHON') {
+    const normalized = String(level).toLowerCase();
+    const record = logger[normalized]?.(origin, message) || {
+      timestamp: new Date().toISOString(), level: String(level).toUpperCase(), origin, message: String(message)
+    };
+    logs.push({
+      timestamp: record.timestamp,
+      level: record.level,
+      origin: record.origin,
+      message: record.message
+    });
+    if (logs.length > 1000) logs.shift();
   }
 
-  function getPythonCommand() {
-    if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) return process.env.PYTHON_PATH;
-    const candidates = [
-      path.join(rootDir, '.venv', 'bin', 'python'),
-      path.join(rootDir, 'venv', 'bin', 'python'),
-      path.join(rootDir, 'venv', 'Scripts', 'python.exe'),
-      path.join(rootDir, '.venv', 'Scripts', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python310', 'python.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-      'C:\\Python311\\python.exe', 'C:\\Python310\\python.exe', 'C:\\Python312\\python.exe'
-    ];
-    return candidates.find(candidate => candidate && fs.existsSync(candidate)) || 'python';
+  function ownsRun(userId) {
+    return !!userId && ownerId === userId;
   }
 
-  function finalizeRun(runId, runStatus, shouldSync, userId) {
+  function finishRun(finalStatus) {
+    if (!runId) return;
     finishedAt = new Date().toISOString();
-    onRunFinished?.({ runId, finishedAt, status: runStatus, shouldSync, userId });
+    const completedRunId = runId;
+    runId = null;
+    try {
+      onRunFinished?.({ runId: completedRunId, finishedAt, status: finalStatus, userId: ownerId });
+    } catch (error) {
+      addLog(`Falha ao persistir estado final da execução: ${error.message}`, 'ERROR', 'BOT.RUNNER');
+    }
+  }
+
+  function parseChildLine(line, streamLevel) {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const declaredLevel = trimmed.match(/\|\s(DEBUG|INFO|WARNING|WARN|ERROR)\s*\|/i)?.[1]?.toUpperCase();
+    const inferredLevel = /\b(ERROR|FATAL|EXCEPTION)\b|🚨|❌|\bErro\b|\bFalhou\b/i.test(trimmed)
+      ? 'ERROR'
+      : (/\b(WARN|WARNING)\b|⚠️|⏱️|PAUSA:/i.test(trimmed) ? 'WARN' : streamLevel);
+    const level = declaredLevel === 'WARNING' ? 'WARN' : (declaredLevel || inferredLevel);
+    addLog(trimmed, level, 'BOT.PYTHON');
+    if (trimmed.includes('PAUSA:') || trimmed.includes('Aperte ENTER')) status = 'waiting_captcha';
   }
 
   return {
-    addLog,
-    getStatus() {
+    getStatus(userId) {
+      if (!ownsRun(userId)) {
+        return { status: 'idle', isRunning: false, logs: [], startedAt: null, finishedAt: null };
+      }
       return {
         status,
         isRunning: !!processHandle,
-        logs: logs.slice(-150),
+        logs: logs.slice(-500),
         startedAt,
         finishedAt
       };
     },
     start(mode = 'apply', apiContext = {}) {
-      if (processHandle) {
-        try {
-          process.kill(processHandle.pid, 0);
-          return { success: false, statusCode: 400, error: 'O robô já está em execução!' };
-        } catch (error) {
-          processHandle = null;
-        }
-      }
-
+      if (processHandle) return { success: false, statusCode: 400, error: 'O robô já está em execução!' };
       if (!apiContext.userId || !apiContext.sessionToken) {
         return { success: false, statusCode: 401, error: 'Sessão inválida para iniciar o bot.' };
       }
 
-      const pythonCommand = getPythonCommand();
+      const pythonCommand = resolvePythonCommand(rootDir);
       logs = [];
       startedAt = new Date().toISOString();
       finishedAt = null;
       status = 'running';
-      const runId = crypto.randomBytes(8).toString('hex');
-      let runFinalized = false;
-      const finishRun = (finalStatus, shouldSync) => {
-        if (runFinalized) return;
-        runFinalized = true;
-        finalizeRun(runId, finalStatus, shouldSync, apiContext.userId);
-      };
-      onRunStarted?.({ runId, startedAt, userId: apiContext.userId });
+      ownerId = apiContext.userId;
+      runId = crypto.randomBytes(8).toString('hex');
+      stopRequested = false;
 
       const scriptArgs = mode === 'verify'
         ? ['-u', 'verificar_candidaturas.py']
         : ['-u', 'main.py'];
-      const actionName = mode === 'verify' ? 'Verificação de Estado & Links Externos' : 'Candidaturas Automatizadas (Easy Apply)';
+      const actionName = mode === 'verify'
+        ? 'Verificação de Estado & Links Externos'
+        : 'Candidaturas Automatizadas (Easy Apply)';
 
-      addLog(`Iniciando o robô [${actionName}] com: ${pythonCommand} ${scriptArgs.join(' ')}`);
+      addLog(`Iniciando [${actionName}] com Python em ${pythonCommand}`, 'INFO', 'BOT.RUNNER');
+      addLog(
+        `Configuração: browser=${process.env.ATF_BROWSER || 'chrome'} headless=${process.env.ATF_HEADLESS || 'false'} ` +
+        `webdriverRemoto=${process.env.ATF_SELENIUM_REMOTE_URL ? 'configurado' : 'não'} ` +
+        `envioReal=${process.env.ATF_ALLOW_REAL_APPLICATIONS === 'true' ? 'habilitado' : 'bloqueado'}`,
+        'INFO', 'BOT.RUNNER'
+      );
 
       try {
-        const isDirectExe = pythonCommand.endsWith('.exe') || pythonCommand.includes('\\') || pythonCommand.includes('/');
-
-        // Ponto de entrada da execução: persiste 100% diretamente no SQLite
-        processHandle = spawn(pythonCommand, scriptArgs, {
+        onRunStarted?.({ runId, startedAt, userId: apiContext.userId });
+        processHandle = spawnProcess(pythonCommand, scriptArgs, {
           cwd: rootDir,
-          shell: !isDirectExe,
+          shell: false,
+          stdio: ['pipe', 'pipe', 'pipe'],
           env: {
             ...process.env,
             KIWI_API_URL: apiContext.apiUrl,
             KIWI_SESSION_TOKEN: apiContext.sessionToken,
             KIWI_BOT_RUN_ID: runId,
+            ATF_BROWSER: process.env.ATF_BROWSER || 'chrome',
             PYTHONUNBUFFERED: '1',
             PYTHONIOENCODING: 'utf-8'
           }
         });
 
+        let stdoutBuffer = '';
+        let stderrBuffer = '';
         processHandle.stdout.on('data', data => {
-          const lines = data.toString('utf-8').split(/\r?\n/).filter(line => line.trim());
-          for (const line of lines) {
-            addLog(line);
-            if (line.includes('PAUSA:') || line.includes('Aperte ENTER')) status = 'waiting_captcha';
-          }
+          stdoutBuffer += data.toString('utf-8');
+          const lines = stdoutBuffer.split(/\r?\n/);
+          stdoutBuffer = lines.pop() || '';
+          lines.forEach(line => parseChildLine(line, 'INFO'));
         });
-
         processHandle.stderr.on('data', data => {
-          data.toString('utf-8').split(/\r?\n/).filter(line => line.trim()).forEach(line => addLog(`[INFO] ${line}`));
+          stderrBuffer += data.toString('utf-8');
+          const lines = stderrBuffer.split(/\r?\n/);
+          stderrBuffer = lines.pop() || '';
+          lines.forEach(line => parseChildLine(line, 'ERROR'));
         });
-
         processHandle.on('error', error => {
-          addLog(`Erro: ${error.message}`);
+          addLog(`Falha ao iniciar/comunicar com Python: ${error.message}`, 'ERROR', 'BOT.RUNNER');
           status = 'error';
           processHandle = null;
-          finishRun('error', false);
+          finishRun('error');
         });
-
-        processHandle.on('close', code => {
-          const finalStatus = code === 0 ? 'completed' : 'error';
-          addLog(`Execução finalizada com código ${code}.`);
+        processHandle.on('close', (code, signal) => {
+          if (stdoutBuffer.trim()) parseChildLine(stdoutBuffer, 'INFO');
+          if (stderrBuffer.trim()) parseChildLine(stderrBuffer, 'ERROR');
+          const finalStatus = stopRequested ? 'interrupted' : (code === 0 ? 'completed' : 'error');
+          addLog(`Processo Python encerrado: exitCode=${code ?? 'null'} signal=${signal || 'none'}`,
+            finalStatus === 'error' ? 'ERROR' : 'INFO', 'BOT.RUNNER');
           status = finalStatus;
           processHandle = null;
-          finishRun(finalStatus, false);
+          finishRun(finalStatus);
         });
-
         return { success: true, message: `Robô iniciado com sucesso (${actionName})!` };
       } catch (error) {
         status = 'error';
         processHandle = null;
-        finishRun('error', false);
+        addLog(`Falha ao criar processo Python: ${error.message}`, 'ERROR', 'BOT.RUNNER');
+        finishRun('error');
         return { success: false, statusCode: 500, error: error.message };
       }
     },
-    continue() {
-      if (!processHandle?.stdin) return { success: false, statusCode: 400, error: 'O robô não está aguardando confirmação.' };
+    continue(userId) {
+      if (!ownsRun(userId)) return { success: false, statusCode: 404, error: 'Execução não encontrada.' };
+      if (status !== 'waiting_captcha' || !processHandle?.stdin) {
+        return { success: false, statusCode: 400, error: 'O robô não está aguardando confirmação.' };
+      }
       try {
         processHandle.stdin.write('\n');
-        addLog('Captcha resolvido — retomando busca...');
+        addLog('Confirmação manual recebida; retomando execução.', 'INFO', 'BOT.RUNNER');
         status = 'running';
         return { success: true };
       } catch (error) {
+        addLog(`Falha ao continuar processo: ${error.message}`, 'ERROR', 'BOT.RUNNER');
         return { success: false, statusCode: 500, error: 'Falha ao enviar confirmação' };
       }
     },
-    stop() {
+    stop(userId) {
+      if (!ownsRun(userId)) return { success: false, statusCode: 404, error: 'Execução não encontrada.' };
       if (!processHandle) return { success: false, statusCode: 400, error: 'O robô não está em execução.' };
       try {
+        stopRequested = true;
+        status = 'stopping';
+        addLog('Solicitado encerramento do processo Python.', 'WARN', 'BOT.RUNNER');
         processHandle.kill();
-        addLog('Robô interrompido pelo usuário.');
-        processHandle = null;
-        status = 'idle';
-        finishedAt = new Date().toISOString();
-        return { success: true, message: 'Robô interrompido.' };
+        return { success: true, message: 'Encerramento solicitado.' };
       } catch (error) {
+        addLog(`Falha ao encerrar processo Python: ${error.message}`, 'ERROR', 'BOT.RUNNER');
         return { success: false, statusCode: 500, error: 'Erro ao interromper' };
       }
+    },
+    shutdown() {
+      if (!processHandle) return Promise.resolve();
+      stopRequested = true;
+      status = 'stopping';
+      addLog('Servidor encerrando; solicitando término do bot.', 'WARN', 'BOT.RUNNER');
+      return new Promise(resolve => {
+        const child = processHandle;
+        const timer = setTimeout(() => {
+          if (processHandle === child) child.kill('SIGKILL');
+        }, 5000);
+        timer.unref();
+        child.once('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        child.kill();
+      });
     }
   };
 }
 
-module.exports = { createBotRunner };
+module.exports = { createBotRunner, resolvePythonCommand };
